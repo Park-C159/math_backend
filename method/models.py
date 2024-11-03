@@ -2,6 +2,41 @@ from flask_sqlalchemy import SQLAlchemy
 from . import db
 
 
+class Course(db.Model):
+    __tablename__ = 'course'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    teacher = db.Column(db.String(100), nullable=False)
+    start_time = db.Column(db.Date, nullable=True)
+    end_time = db.Column(db.Date, nullable=True)
+    intro = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    updated_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(),
+                           onupdate=db.func.current_timestamp())
+    cookies = db.Column(db.Text, nullable=True)
+
+    __table_args__ = (
+        db.Index('idx_name', 'name'),  # 创建索引
+    )
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'teacher': self.teacher,
+            'start_time': self.start_time.strftime('%Y-%m-%d %H:%M:%S') if self.start_time else None,
+            'end_time': self.end_time.strftime('%Y-%m-%d %H:%M:%S') if self.end_time else None,
+            'intro': self.intro,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+            'cookies': self.cookies
+        }
+
+    def __repr__(self):
+        return f'<Course {self.name}>'
+
+
 class CourseContent(db.Model):
     __tablename__ = 'course_content'
 

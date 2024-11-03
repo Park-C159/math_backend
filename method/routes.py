@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+
 from flask import Blueprint, jsonify, request, send_file
 from sqlalchemy import and_
 import pandas as pd
@@ -471,3 +473,81 @@ def regist():
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'msg': '注册失败，请重试！', 'error': str(e)}), 500
+
+
+@main.route('/api/course_management', methods=['GET', 'DELETE', 'PUT'])
+def course_manager():
+    if request.method == 'GET':
+        course_name = request.args.get('name')
+        if course_name:
+            # 获取指定名称的课程
+            course = Course.query.filter_by(name=course_name).first()
+            if course:
+                return jsonify(course.as_dict()), 200
+            return jsonify({'message': 'Course not found.'}), 404
+        else:
+            # 获取所有课程
+            courses = Course.query.all()
+            return jsonify([course.as_dict() for course in courses]), 200
+
+    elif request.method == 'DELETE':
+        course_id = request.args.get('id')
+        if course_id:
+            course = Course.query.get(course_id)
+            if course:
+                db.session.delete(course)
+                db.session.commit()
+                return jsonify({'message': 'Course deleted successfully.'}), 200
+            return jsonify({'message': 'Course not found.'}), 404
+        return jsonify({'message': 'Course ID is required.'}), 400
+
+    elif request.method == 'PUT':
+
+        data = request.json
+
+        if not data:
+            return jsonify({'message': 'Request body is required.'}), 400
+
+        # 转换日期格式
+
+        start_time_str = data.get('start_time')
+
+        end_time_str = data.get('end_time')
+
+        try:
+
+            start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+            end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+        except ValueError as e:
+
+            return jsonify({'message': f'Invalid date format: {str(e)}'}), 400
+
+        # 创建新的课程对象
+
+        new_course = Course(
+
+            name=data.get('name'),
+
+            teacher=data.get('teacher'),
+
+            start_time=start_time,
+
+            end_time=end_time,
+
+            intro=data.get('intro')
+
+        )
+
+        # 添加到数据库
+
+        db.session.add(new_course)
+
+        db.session.commit()
+
+        # 返回新课程的详细信息
+
+        return jsonify(new_course.as_dict()), 201
+
+    return jsonify({'message': 'Method not allowed.'}), 405
