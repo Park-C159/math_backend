@@ -142,6 +142,7 @@ def save_questions(course_id, exercises):
     """
     try:
         for exercise in exercises:
+            print(exercise)
             question_text = exercise.get('question_text')
             question_type = exercise.get('question_type')
             correct_answer = exercise.get('check')  # 获取check作为正确答案
@@ -213,8 +214,57 @@ def add_test(info):
         db.session.commit()
 
         print(f'新课程已添加: {new_course}')
-        return True  # 插入成功
+        return new_course.id
     except Exception as e:
         db.session.rollback()  # 回滚会话以撤销更改
         print(f'插入失败: {e}')
         return False  # 插入失败
+
+
+def get_questions_data(course_id=None):
+    if course_id is None:
+        return None
+
+    # 查询对应小节的所有题目
+    questions = Question.query.filter(Question.course_id == course_id).all()
+
+    questions_data = []
+    for question in questions:
+        question_info = {
+            'id': question.id,
+            'course_id': question.course_id,
+            'question_type': question.question_type,
+            'question_text': question.question_text,
+            'correct_answer': question.correct_answer,
+            'created_at': question.created_at
+        }
+
+        # 如果是选择题，查询对应的选项
+        if question.question_type == 'choice':
+            options = Option.query.filter(Option.question_id == question.id).all()
+            option_data = [{
+                'option_id': option.id,
+                'option_label': option.option_label,
+                'option_text': option.option_text
+            } for option in options]
+
+            # 将选项数据添加到题目信息中
+            question_info['options'] = option_data
+
+        # 如果是流程题，查询对应的选项
+        if question.question_type == 'flow':
+            steps = Flows.query.filter(Flows.question_id == question.id).all()
+            steps_data = [{
+                'step_id': step.id,
+                'step_label': step.step_label,
+                'step_text': step.step_text,
+                'is_hidden': step.is_hidden,
+            } for step in steps]
+
+            # 将选项数据添加到题目信息中
+            question_info['steps'] = steps_data
+
+        # 将题目添加到 questions_data 列表中
+        questions_data.append(question_info)
+
+    return questions_data

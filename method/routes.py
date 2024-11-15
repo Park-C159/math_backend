@@ -1,13 +1,17 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, send_file
+import os
+from flask import Blueprint, jsonify, request, send_file, send_from_directory
 from sqlalchemy import and_
 import pandas as pd
+from sqlalchemy.orm import joinedload
+from werkzeug.utils import secure_filename
 
+from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
-    convert_to_logic_symbols, save_questions, add_test
+    convert_to_logic_symbols, save_questions, add_test, get_questions_data
 
 # 定义一个名为 main 的蓝图
 main = Blueprint('main', __name__)
@@ -23,54 +27,79 @@ def about():
     return "This is the About page."
 
 
-@main.route('/api/course', methods=['GET'])
+@main.route('/api/course', methods=['GET', 'DELETE'])
 def get_courses():
-    # 获取查询参数中的 course_name
-    course_name = request.args.get('courseName')
+    if request.method == 'GET':
+        # 获取查询参数中的 course_name
+        course_name = request.args.get('courseName')
 
-    # 如果传递了 course_name，则根据 course_name 进行筛选
-    if course_name:
-        courses = CourseContent.query.filter(CourseContent.course_name.like(f"%{course_name}%")).all()
-    else:
-        # 如果没有传递 course_name，则查询所有记录
-        return jsonify({'error': 'No course name provided'}), 400
+        # 如果传递了 course_name，则根据 course_name 进行筛选
+        if course_name:
+            courses = CourseContent.query.filter(CourseContent.course_name.like(f"%{course_name}%")).all()
+        else:
+            # 如果没有传递 course_name，则查询所有记录
+            return jsonify({'error': 'No course name provided'}), 400
 
-    # 构建树状结构
-    tree = []
+        # 构建树状结构
+        tree = []
 
-    # 创建一个辅助字典用于存储章节及其子章节的引用
-    chapter_dict = {}
+        # 创建一个辅助字典用于存储章节及其子章节的引用
+        chapter_dict = {}
 
-    for course in courses:
-        # 检查章节是否已存在
-        if course.chapter_title not in chapter_dict:
-            # 如果章节不存在，创建并添加到 tree 和 chapter_dict
-            chapter_node = {
-                'id': course.id,
-                'label': course.chapter_title,
-                'time': course.planned_hours,
-                'children': []
-            }
-            chapter_dict[course.chapter_title] = chapter_node
-            tree.append(chapter_node)
+        for course in courses:
+            # 检查章节是否已存在
+            if course.chapter_title not in chapter_dict:
+                # 如果章节不存在，创建并添加到 tree 和 chapter_dict
+                chapter_node = {
+                    'id': course.id,
+                    'label': course.chapter_title,
+                    'time': course.planned_hours,
+                    'children': []
+                }
+                chapter_dict[course.chapter_title] = chapter_node
+                tree.append(chapter_node)
 
-        # 如果有子章节，则将其加入章节的 children 列表中
-        if course.section_title:
-            section_node = {
-                'label': course.section_title,
-                'id': course.id,
-                'time': course.planned_hours,
-                'children': []
-            }
-            chapter_dict[course.chapter_title]['children'].append(section_node)
+            # 如果有子章节，则将其加入章节的 children 列表中
+            if course.section_title:
+                section_node = {
+                    'label': course.section_title,
+                    'id': course.id,
+                    'time': course.planned_hours,
+                    'children': []
+                }
+                chapter_dict[course.chapter_title]['children'].append(section_node)
 
-            # 添加子章节内容（叶子节点）
-            # content_node = {
-            #     'label': course.content
-            # }
-            # section_node['children'].append(content_node)
+                # 添加子章节内容（叶子节点）
+                # content_node = {
+                #     'label': course.content
+                # }
+                # section_node['children'].append(content_node)
 
-    return jsonify(tree)
+        return jsonify(tree)
+
+    elif request.method == 'DELETE':
+        # 获取请求参数中的 course_id
+        course_id = request.args.get('course_id')
+
+        if not course_id:
+            # 如果没有提供 course_id，返回错误信息
+            return jsonify({'error': 'course_id is required'}), 400
+
+        # 查找对应的课程记录
+        course = CourseContent.query.get(course_id)
+
+        if not course:
+            # 如果找不到课程记录，返回错误信息
+            return jsonify({'error': 'Course not found'}), 404
+
+        try:
+            # 删除课程记录
+            db.session.delete(course)
+            db.session.commit()
+            return jsonify({'message': f'Course with ID {course_id} deleted successfully.'}), 200
+        except Exception as e:
+            # 如果删除过程中出现错误，返回错误信息
+            return jsonify({'error': str(e)}), 500
 
 
 @main.route('/api/course_content', methods=['GET'])
@@ -136,7 +165,8 @@ def get_video():
 @main.route('/api/get_questions', methods=['GET'])
 def get_questions():
     course_id = request.args.get('course_id')
-    if not course_id:
+    user_id = request.args.get("user_id")
+    if not course_id or not user_id:
         return jsonify({'error': 'No section id provided'}), 400
 
     # 查询对应小节的所有题目
@@ -145,12 +175,25 @@ def get_questions():
     questions_data = []
     for question in questions:
         question_info = {
+            'id': question.id,
             'course_id': question.course_id,
             'question_type': question.question_type,
             'question_text': question.question_text,
             'correct_answer': question.correct_answer,
             'created_at': question.created_at
         }
+        # 查询用户的答题情况
+        user_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question.id).first()
+
+        # 如果用户有答题记录，加入答题情况和对错标记
+        if user_answer:
+            question_info['user_answer'] = user_answer.user_answer
+            question_info['is_correct'] = bool(user_answer.is_correct)  # 将 1 或 0 转为 True 或 False
+            question_info['answered'] = True
+        else:
+            question_info['user_answer'] = None
+            question_info['is_correct'] = None
+            question_info['answered'] = False  # 标记用户未答题
 
         # 如果是选择题，查询对应的选项
         if question.question_type == 'choice':
@@ -297,26 +340,9 @@ def question():
     if request.method == 'GET':
         # 从请求参数中获取 course_id
         course_id = request.args.get('course_id')
-        if not course_id:
-            return jsonify({'message': 'No course id provided'}), 400
 
-        # 根据 course_id 查询相关题目
-        questions = Question.query.filter_by(course_id=course_id).all()
-        if not questions:
-            return jsonify({'message': 'No questions found for the provided course id'}), 404
+        questions_data = get_questions_data(course_id)
 
-        # 将查询到的题目信息转换为 JSON 格式
-        questions_data = [
-            {
-                'id': question.id,
-                'course_id': question.course_id,
-                'question_type': question.question_type,
-                'question_text': question.question_text,
-                'correct_answer': question.correct_answer,
-                'created_at': question.created_at
-            }
-            for question in questions
-        ]
         return jsonify(questions_data), 200
     elif request.method == 'PUT':
         data = request.get_json()
@@ -331,11 +357,11 @@ def question():
         format_data_json = json.loads(format_data)
         if course_id == "0":
             test_info_json = json.loads(test_info)
-            add_res = add_test(test_info_json)
-            if add_res:
-                return jsonify({'message': "添加试卷成功"}), 200
-            else:
-                return jsonify({'message': "添加试卷失败！"}), 200
+            course_id = add_test(test_info_json)
+            # if add_res:
+            #     return jsonify({'message': "添加试卷成功"}), 200
+            # else:
+            #     return jsonify({'message': "添加试卷失败！"}), 200
             # print(test_info_json.get('test_title'))
 
         save_result = save_questions(course_id, format_data_json)
@@ -358,6 +384,7 @@ def question():
         db.session.delete(question)
         db.session.commit()
         return jsonify({'message': '题目删除成功'}), 200
+
 
 @main.route('/api/content', methods=['POST'])
 def content():
@@ -399,7 +426,8 @@ def content():
 @main.route('/api/get_course_name', methods=['GET'])
 def get_course_name():
     # 查询所有 ID 大于 0 的课程名称
-    courses = CourseContent.query.with_entities(CourseContent.course_name).filter(CourseContent.course_name != '考试').distinct().all()
+    courses = CourseContent.query.with_entities(CourseContent.course_name).filter(
+        CourseContent.course_name != '考试').distinct().all()
     # 将结果转换为列表格式
     course_names = [course.course_name for course in courses]
     return jsonify(course_names)
@@ -479,6 +507,7 @@ def regist():
 def course_manager():
     if request.method == 'GET':
         course_name = request.args.get('name')
+
         if course_name:
             # 获取指定名称的课程
             course = Course.query.filter_by(name=course_name).first()
@@ -551,3 +580,171 @@ def course_manager():
         return jsonify(new_course.as_dict()), 201
 
     return jsonify({'message': 'Method not allowed.'}), 405
+
+
+@main.route('/api/answered_questions', methods=['PUT'])
+def answered_questions():
+    data = request.get_json()
+    if not data or 'user_answer' not in data:
+        return jsonify({'error': 'No answer data provided'}), 400
+
+    # 解析并加载 user_answer 数据
+    user_answers = json.loads(data['user_answer'])
+
+    # 遍历每个答题项并存储到数据库
+    for answer in user_answers:
+        user_id = answer.get('user_id')
+        question_id = answer.get('question_id')
+        user_answer_text = json.dumps(answer.get('user_answer'))
+        is_correct = answer.get('is_correct')
+
+        # 检查 question_id 是否为空
+        if question_id is None:
+            print(f"Error: question_id is None for user_id {user_id}. Skipping this entry.")
+            continue  # 跳过无效的记录
+
+        # 检查该用户是否已经答过该题目
+        existing_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question_id).first()
+
+        if existing_answer:
+            # 更新已存在的记录
+            existing_answer.user_answer = user_answer_text
+            existing_answer.is_correct = is_correct
+        else:
+            # 创建新的答题记录
+            new_answer = UserAnswer(
+                user_id=user_id,
+                question_id=question_id,
+                user_answer=user_answer_text,
+                is_correct=is_correct,
+                answered_at=db.func.current_timestamp()
+            )
+            db.session.add(new_answer)
+
+    # 提交所有更改到数据库
+    db.session.commit()
+    return jsonify({'message': 'Answers recorded successfully'}), 200
+
+
+@main.route('/api/get_course_answers', methods=['GET'])
+def get_course_answers():
+    # 获取请求中的参数
+    course_id = request.args.get('course_id', type=int)
+    if not course_id:
+        return jsonify({'error': 'course_id is required'}), 400
+
+    try:
+        # 查询所有该课程的题目及其答题情况
+        questions = Question.query.filter_by(course_id=course_id).options(
+            joinedload(Question.options),  # 加载题目选项（如果有）
+            joinedload(Question.steps),
+            joinedload(Question.user_answers)  # 加载题目的答题情况（需建立关系）
+        ).all()
+        # 构造返回数据
+        course_answers = []
+        for question in questions:
+            question_info = {
+                'question_id': question.id,
+                'question_type': question.question_type,
+                'question_text': question.question_text,
+                'correct_answer': question.correct_answer,
+                'options': [
+                    {
+                        'option_id': option.id,
+                        'option_label': option.option_label,
+                        'option_text': option.option_text,
+                    }
+                    for option in question.options
+                ],
+                'answers': [
+                    {
+                        'user_id': answer.user_id,
+                        'user_answer': answer.user_answer,
+                        'is_correct': answer.is_correct,
+                        'answered_at': answer.answered_at
+                    }
+                    for answer in question.user_answers
+                ]
+            }
+            course_answers.append(question_info)
+
+        return jsonify(course_answers), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# 检查文件是否是允许的类型
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+
+
+@main.route('/api/upload', methods=['POST', 'GET', 'DELETE'])
+def manage_files():
+    if request.method == 'POST':
+        # 处理文件上传
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part in the request'}), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        if file and allowed_file(file.filename):
+            # 确保文件名安全
+            filename = secure_filename(file.filename)
+
+            # 添加时间戳生成唯一文件名
+            unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}"
+
+            # 保存文件
+            file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
+            file.save(file_path)
+
+            return jsonify({'message': 'File uploaded successfully', 'file_path': file_path}), 200
+        else:
+            return jsonify({'error': 'File type not allowed'}), 400
+
+    elif request.method == 'GET':
+        # 获取文件列表
+        files = os.listdir(Config.UPLOAD_FOLDER)
+        file_urls = [
+            {
+                "file_name": file,
+                "file_path": f"http://localhost:5000/uploads/{file}"
+            }
+            for file in files
+        ]
+        return jsonify({'files': file_urls}), 200
+
+    elif request.method == 'DELETE':
+        # 删除指定文件
+        file_name = request.args.get('file_name')
+        if not file_name:
+            return jsonify({'error': 'File name is required'}), 400
+
+        file_path = file_name
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return jsonify({'message': f'File {file_name} deleted successfully.'}), 200
+        else:
+            return jsonify({'error': 'File not found'}), 404
+
+
+@main.route('/api/uploads/<filename>', methods=['GET'])
+def uploaded_file(filename):
+    try:
+        # 返回文件内容
+        upload_folder = os.path.join(os.getcwd(), Config.UPLOAD_FOLDER)
+        print(upload_folder)
+        return send_from_directory(upload_folder, filename)
+    except FileNotFoundError:
+        # 如果文件不存在，返回 404
+        return jsonify({'error': 'File not found'}), 404
+
+
+@main.route('/api/get_user_answers', methods=['GET', 'PUT'])
+def check_question():
+
+    return jsonify({'questions': Question.query.all()}), 200

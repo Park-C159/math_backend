@@ -89,6 +89,8 @@ class Question(db.Model):
 
     # Relationship to options table
     options = db.relationship('Option', backref='question', cascade="all, delete-orphan")
+    steps = db.relationship('Flows', backref='question', lazy='joined', cascade='all, delete-orphan')
+    user_answers = db.relationship('UserAnswer', backref='question', lazy='joined', cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<Question {self.id}: {self.question_text[:20]}>'
@@ -139,3 +141,17 @@ class User(db.Model):
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"
+
+
+class UserAnswer(db.Model):
+    __tablename__ = 'user_answers'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 假设 users 表中的 id 是主键
+    question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False)  # 假设 questions 表中的 id 是主键
+    user_answer = db.Column(db.Text, nullable=False)
+    is_correct = db.Column(db.Boolean, nullable=False)
+    answered_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), nullable=True)
+
+    def __repr__(self):
+        return f"<UserAnswer(id={self.id}, user_id={self.user_id}, question_id={self.question_id}, is_correct={self.is_correct})>"
