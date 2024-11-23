@@ -11,6 +11,8 @@ def create_app():
 
     # 初始化数据库
     db.init_app(app)
+    with app.app_context():
+        db.create_all()
     # 注册路由
     from .routes import main
     app.register_blueprint(main)
