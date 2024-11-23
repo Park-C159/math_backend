@@ -4,6 +4,8 @@ from itertools import product
 import pandas as pd
 import re
 
+from flask import jsonify
+
 from method import db
 from method.models import *
 
@@ -142,13 +144,12 @@ def save_questions(course_id, exercises):
     """
     try:
         for exercise in exercises:
-            print(exercise)
             question_text = exercise.get('question_text')
             question_type = exercise.get('question_type')
             correct_answer = exercise.get('check')  # 获取check作为正确答案
 
             # 创建Question对象
-            question = Question(
+            question = Questions(
                 course_id=course_id,
                 question_type=question_type,
                 question_text=question_text,
@@ -226,7 +227,7 @@ def get_questions_data(course_id=None):
         return None
 
     # 查询对应小节的所有题目
-    questions = Question.query.filter(Question.course_id == course_id).all()
+    questions = Questions.query.filter(Questions.course_id == course_id).all()
 
     questions_data = []
     for question in questions:
@@ -268,3 +269,19 @@ def get_questions_data(course_id=None):
         questions_data.append(question_info)
 
     return questions_data
+
+
+def create_response(code, msg, data=None):
+    """
+    返回统一格式的 JSON 响应
+    :param data: 响应的数据，可以是列表、字典或其他类型
+    :param code: 状态码，默认为 200
+    :param msg: 响应消息，默认为 "请求成功！"
+    :return: Flask jsonify 对象，返回给前端
+    """
+    response = {
+        'code': code,
+        'data': data,
+        'msg': msg
+    }
+    return jsonify(response)
