@@ -1,17 +1,18 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import os
 from flask import Blueprint, jsonify, request, send_file, send_from_directory
 from sqlalchemy import and_
 import pandas as pd
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.functions import current_user
 from werkzeug.utils import secure_filename
 
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
-    convert_to_logic_symbols, save_questions, add_test, get_questions_data
+    convert_to_logic_symbols, save_questions, add_test, get_questions_data, create_response
 
 # 定义一个名为 main 的蓝图
 main = Blueprint('main', __name__)
@@ -170,7 +171,7 @@ def get_questions():
         return jsonify({'error': 'No section id provided'}), 400
 
     # 查询对应小节的所有题目
-    questions = Question.query.filter(Question.course_id == course_id).all()
+    questions = Questions.query.filter(Questions.course_id == course_id).all()
 
     questions_data = []
     for question in questions:
@@ -183,7 +184,7 @@ def get_questions():
             'created_at': question.created_at
         }
         # 查询用户的答题情况
-        user_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question.id).first()
+        user_answer = UserAnswers.query.filter_by(user_id=user_id, question_id=question.id).first()
 
         # 如果用户有答题记录，加入答题情况和对错标记
         if user_answer:
@@ -377,7 +378,7 @@ def question():
             return jsonify({'message': 'No question id provided'}), 400
 
         # 查找并删除题目
-        question = Question.query.get(question_id)
+        question = Questions.query.get(question_id)
         if not question:
             return jsonify({'message': 'Question not found'}), 404
 
@@ -493,8 +494,15 @@ def regist():
         extra=''  # 扩展信息，若有
     )
 
-    # 添加用户到数据库
     db.session.add(new_user)
+    db.session.flush()
+
+    # 默认分配第一节课程，后续需要完善逻辑
+    new_course_user = CourseUser(
+        course_id=1,
+        user_id=new_user.id,
+    )
+    db.session.add(new_course_user)
     try:
         db.session.commit()
         return jsonify({'code': 200, 'msg': '注册成功！'}), 200
@@ -604,7 +612,7 @@ def answered_questions():
             continue  # 跳过无效的记录
 
         # 检查该用户是否已经答过该题目
-        existing_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question_id).first()
+        existing_answer = UserAnswers.query.filter_by(user_id=user_id, question_id=question_id).first()
 
         if existing_answer:
             # 更新已存在的记录
@@ -612,7 +620,7 @@ def answered_questions():
             existing_answer.is_correct = is_correct
         else:
             # 创建新的答题记录
-            new_answer = UserAnswer(
+            new_answer = UserAnswers(
                 user_id=user_id,
                 question_id=question_id,
                 user_answer=user_answer_text,
@@ -635,10 +643,10 @@ def get_course_answers():
 
     try:
         # 查询所有该课程的题目及其答题情况
-        questions = Question.query.filter_by(course_id=course_id).options(
-            joinedload(Question.options),  # 加载题目选项（如果有）
-            joinedload(Question.steps),
-            joinedload(Question.user_answers)  # 加载题目的答题情况（需建立关系）
+        questions = Questions.query.filter_by(course_id=course_id).options(
+            joinedload(Questions.options),  # 加载题目选项（如果有）
+            joinedload(Questions.steps),
+            joinedload(Questions.user_answers)  # 加载题目的答题情况（需建立关系）
         ).all()
         # 构造返回数据
         course_answers = []
@@ -684,12 +692,12 @@ def manage_files():
     if request.method == 'POST':
         # 处理文件上传
         if 'file' not in request.files:
-            return jsonify({'error': 'No file part in the request'}), 400
+            return create_response(400, 'No file part in the request')
 
         file = request.files['file']
 
         if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+            return create_response(400, 'No file selected')
 
         if file and allowed_file(file.filename):
             # 确保文件名安全
@@ -702,9 +710,9 @@ def manage_files():
             file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
             file.save(file_path)
 
-            return jsonify({'message': 'File uploaded successfully', 'file_path': file_path}), 200
+            return create_response(200, '图片上传成功', file_path)
         else:
-            return jsonify({'error': 'File type not allowed'}), 400
+            return create_response(400, '非法图片格式')
 
     elif request.method == 'GET':
         # 获取文件列表
@@ -722,14 +730,14 @@ def manage_files():
         # 删除指定文件
         file_name = request.args.get('file_name')
         if not file_name:
-            return jsonify({'error': 'File name is required'}), 400
+            return create_response(400, "非法格式图片")
 
         file_path = file_name
         if os.path.exists(file_path):
             os.remove(file_path)
-            return jsonify({'message': f'File {file_name} deleted successfully.'}), 200
+            return create_response(200, "图片已移除！")
         else:
-            return jsonify({'error': 'File not found'}), 404
+            return create_response(404, "当前图片不存在")
 
 
 @main.route('/api/uploads/<filename>', methods=['GET'])
@@ -746,5 +754,282 @@ def uploaded_file(filename):
 
 @main.route('/api/get_user_answers', methods=['GET', 'PUT'])
 def check_question():
+    return jsonify({'questions': Questions.query.all()}), 200
 
-    return jsonify({'questions': Question.query.all()}), 200
+
+@main.route('/api/exams', methods=['GET', 'POST', 'PUT'])
+def exams():
+    if request.method == "GET":
+        exam_id = request.args.get('exam_id')
+        if not exam_id:
+            return create_response(400, "缺少参数：exam_id", None)
+        else:
+            exam = Exams.query.get(exam_id)
+            isCorrectAnswer = exam.is_checked
+            if exam:
+                questions = [exam_question.question for exam_question in exam.questions]
+                return create_response(
+                    200,
+                    "请求成功",
+                    [question.as_dict(isCorrectAnswer) for question in questions]
+                )
+            else:
+                return create_response(404, "当前考试不存在！")
+    elif request.method == "POST":
+        exam = request.json.get('exam')
+        questions = request.json.get('questions')
+
+        is_exist_exam = Exams.query.filter_by(name=exam.get('name')).first()
+        if is_exist_exam is not None:
+            return create_response(300, "考试已经存在")
+
+        # Assuming exam.get('start_time') returns the ISO 8601 formatted string
+        start_time_str = exam.get('start_time')
+        end_time_str = exam.get('end_time')
+
+        # Convert to a datetime object
+        start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M:%S.%fZ') + timedelta(hours=8)
+        end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M:%S.%fZ') + timedelta(hours=8)
+
+        exam_entry = Exams(
+            name=exam.get('name'),
+            course_id=exam.get('course_id'),
+            start_time=start_time,
+            end_time=end_time,
+        )
+        db.session.add(exam_entry)
+        db.session.flush()
+
+        exam_id = exam_entry.id
+
+        for question in questions:
+            question_text = question.get('question_text')
+            question_type = question.get('question_type')
+            correct_answer_temp = question.get('correct_answer')
+            options = question.get('options', [])
+            steps = question.get('steps', [])
+            if question_type == 'proof' or question_type == 'flow':
+                correct_answer = json.dumps(correct_answer_temp, ensure_ascii=False)
+            else:
+                correct_answer = correct_answer_temp
+            score = question.get('score')
+            question_entry = Question(
+                question_text=question_text,
+                correct_answer=correct_answer,
+                type=question_type,
+                score=score,
+            )
+            db.session.add(question_entry)
+            db.session.flush()
+
+            question_id = question_entry.id
+            if question_type == 'choice':
+                # 处理选择题的选项
+                for opt in options:
+                    option = QuestionOption(
+                        question_id=question_id,
+                        option_label=opt.get('option_label'),
+                        option_text=opt.get('option_text')
+                    )
+                    db.session.add(option)
+
+            elif question_type == 'flow':
+                # 处理流程题的步骤
+                for step in steps:
+                    flow = QuestionFlow(
+                        question_id=question_id,
+                        step_label=str(step.get('step_label')),
+                        step_text=step.get('step_text'),
+                        is_hidden=step.get('is_hidden', False)
+                    )
+                    db.session.add(flow)
+
+            exams_question_entry = ExamsQuestion(
+                exam_id=exam_id,
+                question_id=question_id,
+            )
+            db.session.add(exams_question_entry)
+
+        db.session.commit()
+
+        return create_response(200, "上传成功！", exam_id)
+    elif request.method == "PUT":
+        exam_id = request.json.get('exam_id')
+        if not exam_id:
+            return create_response(400, "请求参数缺失！")
+
+        exam_entry = Exams.query.get(exam_id)
+        exam_entry.is_checked = True
+        db.session.commit()
+
+        return create_response(200, "完成阅卷！")
+
+
+@main.route('/api/exams_list', methods=['GET'])
+def exams_list():
+    if request.method == "GET":
+        course_id = request.args.get('course_id', type=int)
+        one_year_ago = datetime.now() - timedelta(days=365)
+
+        exams_list = Exams.query.filter(
+            and_(Exams.course_id == course_id,
+                 Exams.created_at >= one_year_ago)
+        ).all()
+
+        return create_response(
+            data=[exam.as_dict() for exam in exams_list],  # 数据
+            code=200,  # 状态码
+            msg="请求成功！"  # 消息
+        )
+
+
+@main.route("/api/questions", methods=['GET'])
+def questions():
+    if request.method == "GET":
+        question_id = request.args.get('question_id', type=int)
+        if question_id:
+            questions = Question.query.filter(Question.id == question_id).all()
+        else:
+            questions = Question.query.all()
+        return create_response(
+            200,
+            msg="请求成功",
+            data=[question.as_dict() for question in questions]
+        )
+
+
+@main.route("/api/user_answers", methods=['GET', 'POST', 'PUT'])
+def user_answers():
+    if request.method == "GET":
+        user_id = request.args.get('user_id', type=int)
+        exam_id = request.args.get('exam_id', type=int)
+
+        exam = Exams.query.get(exam_id)
+        if not exam:
+            return None  # 如果找不到考试，返回 None
+
+        # 查询与考试关联的所有题目及用户的答案
+        questions_with_answers = []
+
+        for exam_question in exam.questions:  # 获取与该考试相关的题目
+            question = exam_question.question  # 获取题目
+            # 查询该用户对该问题的答案
+            user_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question.id).first()
+
+            # 将用户答案添加到题目字典中
+            question_dict = question.as_dict()  # 获取题目字典
+            question_dict['user_answer'] = user_answer.as_dict() if user_answer else None
+
+            questions_with_answers.append(question_dict)
+
+        return create_response(200, "请求成功", questions_with_answers)
+    elif request.method == "POST":
+        exam_id = request.json.get('exam_id')
+        user_answers = request.json.get('user_answer')
+        if not exam_id or user_answers is None:
+            return create_response(400, "请求参数缺失！")
+
+        exam = Exams.query.get(exam_id)
+        for user_answer in user_answers:
+            question = Question.query.get(user_answer['question_id'])
+
+            # 获取问题的正确答案
+            correct_answer = question.correct_answer
+            user_answer_value = user_answer['user_answer']
+
+            # 确保字符串的统一处理
+            # 处理字符串引号问题（去掉多余的引号）
+            def clean_string(s):
+                if isinstance(s, str):
+                    s = s.strip().replace('"', '').replace("\\", "'").replace(" ", "")  # 去掉引号和空格
+                return s
+
+            correct_answer = clean_string(correct_answer)
+            user_answer_value = clean_string(user_answer_value)
+
+            # 如果是 JSON 格式的字符串，进行解析
+            try:
+                correct_answer_json = json.loads(correct_answer) if isinstance(correct_answer,
+                                                                               str) else correct_answer
+                user_answer_json = json.loads(user_answer_value) if isinstance(user_answer_value,
+                                                                               str) else user_answer_value
+            except json.JSONDecodeError:
+                correct_answer_json = correct_answer
+                user_answer_json = user_answer_value
+
+            score = 0
+            # 处理不同类型的题目
+            if question.type != 'proof':
+                if correct_answer_json == user_answer_json:
+                    is_correct = True
+                    score = question.score
+                elif correct_answer_json != user_answer_json:
+                    is_correct = False
+                else:
+                    is_correct = None
+            else:
+                # proof 类型题目直接跳过或特殊处理
+                is_correct = None
+
+            # 检查是否已经存在答案记录
+            existing_answer = UserAnswer.query.filter_by(user_id=user_answer['user_id'],
+                                                         question_id=user_answer['question_id']).first()
+            if existing_answer:
+                return create_response(300, "不可重复提交")  # 如果存在记录，返回不可重复提交的提示
+
+            user_answer_entry = UserAnswer(
+                user_id=user_answer['user_id'],
+                question_id=user_answer['question_id'],
+                user_answer=user_answer_value,
+                score=score,
+                is_correct=is_correct,
+            )
+            db.session.add(user_answer_entry)
+
+        db.session.commit()
+        return create_response(200, "提交成功！")
+    elif request.method == "PUT":
+        exam_id = request.json.get('exam_id')
+        user_answers = request.json.get('user_answers')
+        user_id = request.json.get('user_id')
+
+        if not exam_id or user_answers is None:
+            return create_response(400, "请求参数缺失！")
+
+        for user_answer in user_answers:
+            user_answer_entry = UserAnswer.query.filter_by(user_id=user_id,
+                                                           question_id=user_answer['question_id']).first()
+            if user_answer_entry:
+                user_answer_entry.score = user_answer['score']
+
+            else:
+                user_answer_entry_add = UserAnswer(
+                    user_id=user_id,
+                    question_id=user_answer['question_id'],
+                    is_correct=False,  # 根据需求设置初始值
+                    score=user_answer['score'],
+                    user_answer=''  # 假设用户的答案字段
+                )
+                db.session.add(user_answer_entry_add)
+            db.session.flush()
+        db.session.commit()
+
+        return create_response(200, "提交成功！")
+
+
+@main.route("/api/course_user_list", methods=['GET'])
+def get_user_list():
+    if request.method == "GET":
+
+        course_id = request.args.get("course_id")
+
+        if not course_id:
+            return create_response(400, "缺少请求参数！")
+
+        users = CourseUser.query.filter(CourseUser.course_id == course_id).all()
+
+        data = [user.user_info.as_dict() for user in users]
+        # for user in users:
+        #     data.append(user.user_info.as_dict())
+
+        return create_response(200, "请求成功！", data)
