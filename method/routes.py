@@ -757,7 +757,7 @@ def check_question():
     return jsonify({'questions': Questions.query.all()}), 200
 
 
-@main.route('/api/exams', methods=['GET', 'POST', 'PUT'])
+@main.route('/api/exams', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def exams():
     if request.method == "GET":
         exam_id = request.args.get('exam_id')
@@ -863,6 +863,17 @@ def exams():
         db.session.commit()
 
         return create_response(200, "完成阅卷！")
+    elif request.method == "DELETE":
+        exam_id = request.args.get('exam_id')
+        if not exam_id:
+            return create_response(400, "请求参数缺失！")
+
+        exam_entry = Exams.query.get(exam_id)
+        db.session.delete(exam_entry)
+        db.session.commit()
+
+        return create_response(200, "删除成功！")
+
 
 
 @main.route('/api/exams_list', methods=['GET'])

@@ -54,6 +54,8 @@ class Exams(db.Model):
 
     # 定义与 `Course` 模型的关系
     course = db.relationship('Course', backref=db.backref('exams', lazy=True))
+    # 添加级联删除
+    questions = db.relationship('ExamsQuestion', backref='questions', cascade='all, delete-orphan')
 
     __table_args__ = (
         db.Index('idx_exam_name', 'name'),  # 创建索引
@@ -160,7 +162,7 @@ class ExamsQuestion(db.Model):
     question_id = db.Column(db.Integer, db.ForeignKey('question.id'), primary_key=True)
 
     # 使用字符串表示相关的类，避免循环依赖
-    exam = db.relationship('Exams', backref=db.backref('questions', lazy=True))
+    # exam = db.relationship('Exams', backref=db.backref('questions', lazy=True))
     question = db.relationship('Question', backref=db.backref('exams', lazy=True))
 
 
@@ -214,7 +216,7 @@ class UserAnswer(db.Model):
         }
 
     def __repr__(self):
-        return (f"<UserAnswer(id={self.id}, user_id={self.user_id}, "
+        return (f"<UserAnswer(user_id={self.user_id}, "
                 f"question_id={self.question_id}, is_correct={self.is_correct})>")
 
 
