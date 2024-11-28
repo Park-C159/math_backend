@@ -400,9 +400,9 @@ def question():
         questions = data.get('questions')
         if not course_id or not questions:
             return create_response(400, "参数缺失！")
-
-        for question in questions:
-            print(question)
+        #
+        # for question in questions:
+        #     print(question)
 
         return create_response(200, "上传成功！")
 
@@ -554,8 +554,6 @@ def course_manager():
         else:
             # 获取所有课程
             courses = Course.query.all()
-            for course in courses:
-                print(course.name)
 
             return jsonify([course.as_dict() for course in courses]), 200
 
@@ -1098,3 +1096,58 @@ def get_user_list():
         #     data.append(user.user_info.as_dict())
 
         return create_response(200, "请求成功！", data)
+
+
+@main.route("/api/download_users_mark", methods=['GET'])
+def download_user_marks():
+    exam_id = request.args.get("exam_id")
+    if not exam_id:
+        return create_response(400, "缺少exam_id参数")
+
+    # 获取考试信息
+    exam = Exams.query.get(exam_id)
+    if not exam:
+        return create_response(404, "未找到该考试")
+
+    # 按用户查询所有用户的答案
+    user_scores_map = {}
+
+    # 遍历该考试的所有题目
+    for exam_question in exam.questions:
+        question = exam_question.question
+
+        # 获取该题目的所有用户作答记录
+        user_answers = UserAnswer.query.filter_by(question_id=question.id).all()
+        if not user_answers:
+            continue  # 如果没有用户作答，可以跳过该题目
+
+        # 遍历所有作答该题目的用户
+        for user_answer in user_answers:
+            user_id = user_answer.user.user_id
+            user_name = user_answer.user.username
+            question_text = user_answer.question.question_text
+            user_score = user_answer.score
+
+            # 如果该用户还没有记录，初始化一个
+            if user_id not in user_scores_map:
+                user_scores_map[user_id] = {
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'question_score': [],
+                    'total_score': 0,
+                }
+
+            # 添加该题目得分
+            user_scores_map[user_id]['question_score'].append({
+                'question_id': question.id,
+                'question_text': question_text,
+                'user_score': user_score
+            })
+
+            # 累加总分
+            user_scores_map[user_id]['total_score'] += user_score
+
+    # 将所有用户的成绩数据返回
+    result = list(user_scores_map.values())
+
+    return create_response(200, "ok", result)
