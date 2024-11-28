@@ -222,6 +222,166 @@ def add_test(info):
         return False  # 插入失败
 
 
+def user_answers_test():
+    request = {
+
+    }
+    if request.method == "GET":
+        user_id = request.args.get('user_id', type=int)
+        exam_id = request.args.get('exam_id', type=int)
+        course_id = request.args.get('course_id', type=int)
+
+        exam = Exams.query.get(exam_id)
+        if not exam:
+            return None  # 如果找不到考试，返回 None
+
+        # 查询与考试关联的所有题目及用户的答案
+        questions_with_answers = []
+
+        for exam_question in exam.questions:  # 获取与该考试相关的题目
+            question = exam_question.question  # 获取题目
+            # 查询该用户对该问题的答案
+            user_answer = UserAnswer.query.filter_by(user_id=user_id, question_id=question.id).first()
+
+            # 将用户答案添加到题目字典中
+            question_dict = question.as_dict()  # 获取题目字典
+            question_dict['user_answer'] = user_answer.as_dict() if user_answer else None
+
+            questions_with_answers.append(question_dict)
+
+        return create_response(200, "请求成功", questions_with_answers)
+    elif request.method == "POST":
+        exam_id = request.json.get('exam_id')
+        user_answers = request.json.get('user_answer')
+        if not exam_id or user_answers is None:
+            return create_response(400, "请求参数缺失！")
+
+        exam = Exams.query.get(exam_id)
+        for user_answer in user_answers:
+            question = Question.query.get(user_answer['question_id'])
+
+            # 获取问题的正确答案
+            correct_answer = question.correct_answer
+            user_answer_value = user_answer['user_answer']
+
+            # 确保字符串的统一处理
+            # 处理字符串引号问题（去掉多余的引号）
+            def clean_string(s):
+                if isinstance(s, str):
+                    s = s.strip().replace('"', '').replace("\\", "'").replace(" ", "")  # 去掉引号和空格
+                return s
+
+            correct_answer = clean_string(correct_answer)
+            user_answer_value = clean_string(user_answer_value)
+
+            # 如果是 JSON 格式的字符串，进行解析
+            try:
+                correct_answer_json = json.loads(correct_answer) if isinstance(correct_answer,
+                                                                               str) else correct_answer
+                user_answer_json = json.loads(user_answer_value) if isinstance(user_answer_value,
+                                                                               str) else user_answer_value
+            except json.JSONDecodeError:
+                correct_answer_json = correct_answer
+                user_answer_json = user_answer_value
+
+            score = 0
+            # 处理不同类型的题目
+            if question.type != 'proof':
+                if correct_answer_json == user_answer_json:
+                    is_correct = True
+                    score = question.score
+                elif correct_answer_json != user_answer_json:
+                    is_correct = False
+                else:
+                    is_correct = None
+            else:
+                # proof 类型题目直接跳过或特殊处理
+                is_correct = None
+
+            # 检查是否已经存在答案记录
+            existing_answer = UserAnswer.query.filter_by(user_id=user_answer['user_id'],
+                                                         question_id=user_answer['question_id']).first()
+            if existing_answer:
+                return create_response(300, "不可重复提交")  # 如果存在记录，返回不可重复提交的提示
+
+            user_answer_entry = UserAnswer(
+                user_id=user_answer['user_id'],
+                question_id=user_answer['question_id'],
+                user_answer=user_answer_value,
+                score=score,
+                is_correct=is_correct,
+            )
+            db.session.add(user_answer_entry)
+
+        db.session.commit()
+        return create_response(200, "提交成功！")
+    elif request.method == "POST":
+        exam_id = request.json.get('exam_id')
+        user_answers = request.json.get('user_answer')
+        if not exam_id or user_answers is None:
+            return create_response(400, "请求参数缺失！")
+
+        exam = Exams.query.get(exam_id)
+        for user_answer in user_answers:
+            question = Question.query.get(user_answer['question_id'])
+
+            # 获取问题的正确答案
+            correct_answer = question.correct_answer
+            user_answer_value = user_answer['user_answer']
+
+            # 确保字符串的统一处理
+            # 处理字符串引号问题（去掉多余的引号）
+            def clean_string(s):
+                if isinstance(s, str):
+                    s = s.strip().replace('"', '').replace("\\", "'").replace(" ", "")  # 去掉引号和空格
+                return s
+
+            correct_answer = clean_string(correct_answer)
+            user_answer_value = clean_string(user_answer_value)
+
+            # 如果是 JSON 格式的字符串，进行解析
+            try:
+                correct_answer_json = json.loads(correct_answer) if isinstance(correct_answer,
+                                                                               str) else correct_answer
+                user_answer_json = json.loads(user_answer_value) if isinstance(user_answer_value,
+                                                                               str) else user_answer_value
+            except json.JSONDecodeError:
+                correct_answer_json = correct_answer
+                user_answer_json = user_answer_value
+
+            score = 0
+            # 处理不同类型的题目
+            if question.type != 'proof':
+                if correct_answer_json == user_answer_json:
+                    is_correct = True
+                    score = question.score
+                elif correct_answer_json != user_answer_json:
+                    is_correct = False
+                else:
+                    is_correct = None
+            else:
+                # proof 类型题目直接跳过或特殊处理
+                is_correct = None
+
+            # 检查是否已经存在答案记录
+            existing_answer = UserAnswer.query.filter_by(user_id=user_answer['user_id'],
+                                                         question_id=user_answer['question_id']).first()
+            if existing_answer:
+                return create_response(300, "不可重复提交")  # 如果存在记录，返回不可重复提交的提示
+
+            user_answer_entry = UserAnswer(
+                user_id=user_answer['user_id'],
+                question_id=user_answer['question_id'],
+                user_answer=user_answer_value,
+                score=score,
+                is_correct=is_correct,
+            )
+            db.session.add(user_answer_entry)
+
+        db.session.commit()
+        return create_response(200, "提交成功！")
+
+
 def get_questions_data(course_id=None):
     if course_id is None:
         return None
