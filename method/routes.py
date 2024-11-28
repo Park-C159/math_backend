@@ -1,3 +1,4 @@
+import base64
 import json
 from datetime import datetime, timedelta
 
@@ -336,15 +337,28 @@ def is_equivalent():
     })
 
 
-@main.route('/api/question', methods=['PUT', 'GET', 'DELETE'])
+@main.route('/api/question', methods=['PUT', 'GET', 'DELETE', 'POST'])
 def question():
     if request.method == 'GET':
         # 从请求参数中获取 course_id
         course_id = request.args.get('course_id')
+        user_id = request.args.get('user_id')
+        if not course_id:
+            return create_response(400, "参数缺失")
 
-        questions_data = get_questions_data(course_id)
+        course = CourseContent.query.get(course_id)
+        if not course:
+            return create_response(300, "未查询到对应课程")
 
-        return jsonify(questions_data), 200
+        if not user_id:
+            questions = []
+            for course_question in course.questions:
+                questions.append(course_question.question.as_dict())
+
+            return create_response(200, "请求成功", questions)
+        else:
+            questions = []
+
     elif request.method == 'PUT':
         data = request.get_json()
 
@@ -359,11 +373,6 @@ def question():
         if course_id == "0":
             test_info_json = json.loads(test_info)
             course_id = add_test(test_info_json)
-            # if add_res:
-            #     return jsonify({'message': "添加试卷成功"}), 200
-            # else:
-            #     return jsonify({'message': "添加试卷失败！"}), 200
-            # print(test_info_json.get('test_title'))
 
         save_result = save_questions(course_id, format_data_json)
 
@@ -385,6 +394,17 @@ def question():
         db.session.delete(question)
         db.session.commit()
         return jsonify({'message': '题目删除成功'}), 200
+    elif request.method == 'POST':
+        data = request.get_json()
+        course_id = data.get('course_id')
+        questions = data.get('questions')
+        if not course_id or not questions:
+            return create_response(400, "参数缺失！")
+
+        for question in questions:
+            print(question)
+
+        return create_response(200, "上传成功！")
 
 
 @main.route('/api/content', methods=['POST'])
@@ -426,6 +446,15 @@ def content():
 
 @main.route('/api/get_course_name', methods=['GET'])
 def get_course_name():
+    courses = Course.query.all()
+    course_list = []
+    for course in courses:
+        course_list.append({
+            "name": course.name,
+            "id": course.id
+        })
+    return create_response(200, "ok", course_list)
+
     # 查询所有 ID 大于 0 的课程名称
     courses = CourseContent.query.with_entities(CourseContent.course_name).filter(
         CourseContent.course_name != '考试').distinct().all()
@@ -525,6 +554,9 @@ def course_manager():
         else:
             # 获取所有课程
             courses = Course.query.all()
+            for course in courses:
+                print(course.name)
+
             return jsonify([course.as_dict() for course in courses]), 200
 
     elif request.method == 'DELETE':
@@ -687,7 +719,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
 
 
-@main.route('/api/upload', methods=['POST', 'GET', 'DELETE'])
+@main.route('/api/upload', methods=['POST', 'GET', 'DELETE', 'PUT'])
 def manage_files():
     if request.method == 'POST':
         # 处理文件上传
@@ -738,6 +770,28 @@ def manage_files():
             return create_response(200, "图片已移除！")
         else:
             return create_response(404, "当前图片不存在")
+
+    elif request.method == 'PUT':
+        data = request.json
+        image_name = data.get('image_name')
+        image_data = data.get('image')
+        if not image_name or not image_data:
+            return create_response(400, "数据冲突")
+        try:
+            # 解码 base64 编码的图像数据
+            image_data = image_data.split(",")[1]  # 去掉 'data:image/png;base64,' 这一部分
+            img_binary = base64.b64decode(image_data)
+            file_path = image_name
+            print(file_path)
+
+            with open(file_path, 'wb') as f:
+                f.write(img_binary)
+
+            return create_response(200, "图片保存成功！", file_path)
+        except Exception as e:
+            return create_response(500, str(e))
+
+        return create_response(200, "图片保存成功")
 
 
 @main.route('/api/uploads/<filename>', methods=['GET'])
@@ -875,7 +929,6 @@ def exams():
         return create_response(200, "删除成功！")
 
 
-
 @main.route('/api/exams_list', methods=['GET'])
 def exams_list():
     if request.method == "GET":
@@ -914,10 +967,12 @@ def user_answers():
     if request.method == "GET":
         user_id = request.args.get('user_id', type=int)
         exam_id = request.args.get('exam_id', type=int)
+        course_id = request.args.get("course_id", type=int)
 
-        exam = Exams.query.get(exam_id)
-        if not exam:
-            return None  # 如果找不到考试，返回 None
+        if not course_id:
+            exam = Exams.query.get(exam_id)
+        else:
+            exam = CourseContent.query.get(course_id)
 
         # 查询与考试关联的所有题目及用户的答案
         questions_with_answers = []
@@ -930,8 +985,9 @@ def user_answers():
             # 将用户答案添加到题目字典中
             question_dict = question.as_dict()  # 获取题目字典
             question_dict['user_answer'] = user_answer.as_dict() if user_answer else None
-
             questions_with_answers.append(question_dict)
+
+            print(question_dict, questions_with_answers)
 
         return create_response(200, "请求成功", questions_with_answers)
     elif request.method == "POST":
