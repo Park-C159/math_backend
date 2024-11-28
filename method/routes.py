@@ -782,7 +782,6 @@ def manage_files():
             image_data = image_data.split(",")[1]  # 去掉 'data:image/png;base64,' 这一部分
             img_binary = base64.b64decode(image_data)
             file_path = image_name
-            print(file_path)
 
             with open(file_path, 'wb') as f:
                 f.write(img_binary)
@@ -799,7 +798,6 @@ def uploaded_file(filename):
     try:
         # 返回文件内容
         upload_folder = os.path.join(os.getcwd(), Config.UPLOAD_FOLDER)
-        print(upload_folder)
         return send_from_directory(upload_folder, filename)
     except FileNotFoundError:
         # 如果文件不存在，返回 404
