@@ -197,7 +197,7 @@ class UserAnswer(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
     question_id = db.Column(db.Integer, db.ForeignKey('question.id', ondelete='CASCADE'), primary_key=True)
     user_answer = db.Column(db.Text, nullable=False)
-    score = db.Column(db.Integer, default=0)
+    score = db.Column(db.Integer, default=-1)
     is_correct = db.Column(db.Boolean, default=None)
     answered_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
@@ -241,8 +241,29 @@ class CourseContent(db.Model):
     content = db.Column(db.Text, nullable=False)
     video_link = db.Column(db.String(255))
 
+    questions = db.relationship('CourseQuestion', backref=db.backref('questions', lazy=True))
+
     def __repr__(self):
         return f'<CourseContent {self.course_name}>'
+
+
+class CourseQuestion(db.Model):
+    __tablename__ = 'course_question'
+
+    course_id = db.Column(db.Integer, db.ForeignKey('course_content.id', ondelete='CASCADE'), primary_key=True)
+    question_id = db.Column(db.Integer, db.ForeignKey('question.id', ondelete='CASCADE'), primary_key=True)
+
+    question = db.relationship('Question', backref=db.backref('course', lazy=True))
+
+    def __repr__(self):
+        return f'<CourseQuestion {self.course_id}>'
+
+
+
+
+
+
+
 
 
 class Option(db.Model):
@@ -287,6 +308,9 @@ class Questions(db.Model):
 
     def __repr__(self):
         return f'<Question {self.id}: {self.question_text[:20]}>'
+
+
+
 
 
 class Discussion(db.Model):
