@@ -202,8 +202,8 @@ class UserAnswer(db.Model):
     answered_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
     # 关系
-    # user = db.relationship('User', backref=db.backref('question_answers', cascade='all, delete-orphan'))
-    # question = db.relationship('Question', backref=db.backref('user_answer_relationship', cascade='all, delete-orphan'))
+    user = db.relationship('User', backref=db.backref('question_answers', cascade='all, delete-orphan'))
+    question = db.relationship('Question', backref=db.backref('user_answer_relationship', cascade='all, delete-orphan'))
 
     def as_dict(self):
         return {
