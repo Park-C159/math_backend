@@ -507,6 +507,11 @@ def regist():
     upwd = data['upwd']
     uid = data['uid']
     uphone = data['uphone']
+    gender = data['gender']
+    if gender == 'male':
+        gender_label = 1
+    else:
+        gender_label = 0
 
     # 检查用户名是否已存在
     existing_user = User.query.filter_by(username=uname).first()
@@ -520,6 +525,7 @@ def regist():
         user_id=uid,
         phone_number=uphone,
         role='student',  # 默认角色
+        gender=gender_label,
         extra=''  # 扩展信息，若有
     )
 

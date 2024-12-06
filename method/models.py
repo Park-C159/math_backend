@@ -174,6 +174,7 @@ class User(db.Model):
     password = db.Column(db.String(255), nullable=False)
     user_id = db.Column(db.String(50), nullable=False)  # 教工号或学号
     phone_number = db.Column(db.String(15))
+    gender = db.Column(db.Integer, nullable=False)
     role = db.Column(db.Enum('admin', 'teacher', 'student'), nullable=False)
     extra = db.Column(db.Text)
 
