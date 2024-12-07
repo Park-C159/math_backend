@@ -318,15 +318,38 @@ class Discussion(db.Model):
     __tablename__ = 'discussions'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    score = db.Column(db.Integer, nullable=False)
-    author = db.Column(db.String(255), nullable=False)
-    course_name = db.Column(db.String(255), nullable=False)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False, index=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    like = db.Column(db.Integer, default=0)
     content = db.Column(db.Text, nullable=False)
+    is_deleted = db.Column(db.Boolean, default=False, index=True)
+
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.now())
     updated_at = db.Column(db.TIMESTAMP, server_default=db.func.now(), onupdate=db.func.now())
 
-    # 与回复的关系
-    replies = db.relationship('Reply', backref='discussion', cascade='all, delete-orphan')
+    # 关联关系
+    course = db.relationship('Course', backref=db.backref('discussions', lazy='dynamic'))
+    author = db.relationship('User', backref=db.backref('discussions', lazy='dynamic'))
+    replies = db.relationship('Reply',
+                              backref='discussion',
+                              cascade='all, delete-orphan',
+                              primaryjoin='and_(Reply.discussion_id==Discussion.id, Discussion.is_deleted==False)')
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'course_id': self.course_id,
+            'author_id': self.author_id,
+            'author_name': self.author.username if self.author else None,
+            'course_name': self.course.name if self.course else None,
+            'like': self.like,
+            'content': self.content,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+            'replies_count': self.replies.count() if self.replies else 0,
+            'first_reply': {}
+        }
 
     def __repr__(self):
         return f'<Discussion {self.id}: {self.content[:20]}>'
@@ -336,11 +359,34 @@ class Reply(db.Model):
     __tablename__ = 'replies'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    discussion_id = db.Column(db.Integer, db.ForeignKey('discussions.id', ondelete='CASCADE'), nullable=False)
-    replier = db.Column(db.String(255), nullable=False)
-    score = db.Column(db.Integer, nullable=False)
+    discussion_id = db.Column(db.Integer,
+                              db.ForeignKey('discussions.id', ondelete='CASCADE'),
+                              nullable=False,
+                              index=True)
+    replier_id = db.Column(db.Integer,
+                           db.ForeignKey('users.id'),
+                           nullable=False,
+                           index=True)
+
+    like = db.Column(db.Integer, default=0)
     reply_content = db.Column(db.Text, nullable=False)
+    is_deleted = db.Column(db.Boolean, default=False, index=True)
+
     reply_time = db.Column(db.TIMESTAMP, server_default=db.func.now())
+
+    # 关联关系
+    replier = db.relationship('User', backref=db.backref('replies', lazy='dynamic'))
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'discussion_id': self.discussion_id,
+            'replier_id': self.replier_id,
+            'replier_name': self.replier.username if self.replier else None,
+            'score': self.score,
+            'reply_content': self.reply_content,
+            'reply_time': self.reply_time
+        }
 
     def __repr__(self):
         return f'<Reply {self.id} to Discussion {self.discussion_id}: {self.reply_content[:20]}>'
