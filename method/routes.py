@@ -1089,7 +1089,6 @@ def user_answers():
 @main.route("/api/course_user_list", methods=['GET'])
 def get_user_list():
     if request.method == "GET":
-
         course_id = request.args.get("course_id")
 
         if not course_id:
@@ -1157,3 +1156,83 @@ def download_user_marks():
     result = list(user_scores_map.values())
 
     return create_response(200, "ok", result)
+
+
+@main.route("/api/users", methods=['GET', 'DELETE', 'PUT'])
+def users():
+    if request.method == "GET":
+        user_id = request.args.get("user_id")
+        if user_id:
+            return create_response(300, "功能尚未完善")
+        data = []
+
+        user_entries = User.query.all()
+        for user_entry in user_entries:
+            user = user_entry.as_dict()
+            course_users = user_entry.user_info
+
+            course_infos = []
+            for course_user in course_users:
+                course_info = course_user.course_info
+                course_infos.append({
+                    "course_id": course_info.id,
+                    "course_name": course_info.name,
+                })
+            user['course_infos'] = course_infos
+            data.append(user)
+
+        return create_response(200, "获取所用用户", data)
+    elif request.method == "DELETE":
+        id = request.args.get("user_id")
+        if not id:
+            return create_response(400, "缺少参数user_id")
+
+        course_users = CourseUser.query.filter(CourseUser.user_id == id).all()
+        for course_user in course_users:
+            db.session.delete(course_user)
+        db.session.flush()
+
+        user_entry = User.query.get(id)
+        if not user_entry:
+            return create_response(300, "所删除的用户不存在")
+
+        try:
+            db.session.delete(user_entry)
+            db.session.commit()
+            return create_response(200, "删除成功！")
+        except Exception as e:
+            db.session.rollback()
+            print(f"删除失败的原因: {str(e)}")  # 打印异常信息
+            return create_response(400, "删除失败，请联系管理员")
+    elif request.method == "PUT":
+        data = request.get_json()  # 获取请求体中的数据
+
+        user = User.query.get(data['id'])
+        if not user:
+            return create_response(404, "用户未找到")
+
+        # 更新用户基本信息
+        user.username = data['username']
+        user.user_id = data['user_id']
+        user.role = data['role']
+        user.phone_number = data['phone_number']
+
+        # 更新课程信息（假设你用 course_user 表来管理用户和课程的关系）
+        course_infos = data['course_infos']
+        # 清空之前的课程信息
+        CourseUser.query.filter(CourseUser.user_id == user.id).delete()
+
+        # 添加新的课程信息
+        for course_info in course_infos:
+            course_user = CourseUser(user_id=user.id, course_id=course_info['course_id'])
+            db.session.add(course_user)
+
+        try:
+            db.session.commit()
+            return create_response(200, "更新成功")
+        except Exception as e:
+            db.session.rollback()
+            return create_response(400, f"更新失败: {str(e)}")
+
+
+
