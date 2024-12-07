@@ -178,12 +178,16 @@ class User(db.Model):
     role = db.Column(db.Enum('admin', 'teacher', 'student'), nullable=False)
     extra = db.Column(db.Text)
 
+    user_info = db.relationship('CourseUser', backref=db.backref('user_info', lazy=True))
+
+
     def as_dict(self):
         return {
             'id': self.id,
             'username': self.username,
             'user_id': self.user_id,
             'phone_number': self.phone_number,
+            'gender': self.gender,
             'role': self.role,
             'extra': self.extra
         }
@@ -227,7 +231,7 @@ class CourseUser(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
     course_id = db.Column(db.Integer, db.ForeignKey('course.id', ondelete='CASCADE'), primary_key=True)
 
-    user_info = db.relationship('User', backref=db.backref('user_info', lazy=True))
+    course_info = db.relationship('Course', backref=db.backref('course_info', lazy=True))
 
 
 
