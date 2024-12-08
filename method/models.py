@@ -383,7 +383,7 @@ class Reply(db.Model):
             'discussion_id': self.discussion_id,
             'replier_id': self.replier_id,
             'replier_name': self.replier.username if self.replier else None,
-            'score': self.score,
+            'like': self.like,
             'reply_content': self.reply_content,
             'reply_time': self.reply_time
         }
