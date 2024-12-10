@@ -2,3 +2,5 @@
 .videos
 __pycache__
 uploads/*
+method/__pycache__
+config.py
