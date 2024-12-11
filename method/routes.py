@@ -231,32 +231,27 @@ def get_questions():
 @main.route('/api/get_main_discussions', methods=['GET'])
 def get_main_discussions():
     course_name = request.args.get('course_name')
-    page = request.args.get('page', 1, type=int)  # 获取页码参数，默认值为1
-    per_page = request.args.get('per_page', 5, type=int)  # 每页返回的记录数，默认值为5
+    page = request.args.get('page', 1, type=int)  # 页码，默认1
+    per_page = request.args.get('per_page', 5, type=int)  # 每页记录数，默认5
     search = request.args.get('search')
-    time_filter = request.args.get('time_filter')  # 新增参数，用于时间筛选
+    time_filter = request.args.get('time_filter')  # 时间筛选
+    author_filter = request.args.get('author_filter', type=str)
+    user_id = request.args.get('user_id')
 
-    # 验证是否传递了课程名参数
     if not course_name:
         return jsonify({'error': 'No course name provided'}), 400
 
-    # 获取课程id（course_name --> course_id）
     course = Course.query.filter_by(name=course_name).first()
     if not course:
         return jsonify({'error': 'Course not found'}), 404
 
-    # 构建查询条件
     query = Discussion.query.filter_by(course_id=course.id)
 
-    # 如果 search 参数不为空，添加搜索条件
     if search:
         query = query.filter(Discussion.content.like(f'%{search}%'))
 
-    # 如果 time_filter 参数存在，添加时间过滤条件
     if time_filter:
-        print(time_filter)
         now = datetime.utcnow()
-        print(now)
         if time_filter == "last_week":
             start_time = now - timedelta(days=7)
             query = query.filter(Discussion.created_at >= start_time)
@@ -264,36 +259,34 @@ def get_main_discussions():
             start_time = now - timedelta(days=30)
             query = query.filter(Discussion.created_at >= start_time)
 
-    # 获取 discussions 表中属于特定课程的所有讨论，并进行分页
+    if author_filter:
+        if author_filter == 'created_by_me':
+            query = query.filter(Discussion.author_id == user_id)
+        elif author_filter == 'teacher_involved':
+            query = query.filter(Discussion.teacher_involved == True)
+
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    discussions = pagination.items  # 当前页的讨论列表
+    discussions = pagination.items
 
     discussions_data = []
-
     for discussion in discussions:
-        # 获取该讨论的所有回复数
-        replies_count = Reply.query.filter(Reply.discussion_id == discussion.id).count()
+        replies_count = Reply.query.filter_by(parent_id=discussion.id).count()
 
-        # 构建返回数据
-        discussion_dict = {
+        discussions_data.append({
             'id': discussion.id,
-            'course_name': course.name,  # 从关联的 Course 获取课程名称
-            'author_name': discussion.author.username if discussion.author else None,  # 从关联的 User 获取作者名称
+            'course_name': course.name,
+            'author_name': discussion.author.username if discussion.author else None,
             'content': discussion.content,
             'like': discussion.like,
             'created_at': discussion.created_at,
-            'updated_at': discussion.updated_at,
-            'replies_count': replies_count  # 只返回回复数，不包含回复内容
-        }
+            'replies_count': replies_count
+        })
 
-        discussions_data.append(discussion_dict)
-
-    # 构建分页信息
     response_data = {
         'discussions': discussions_data,
-        'total': pagination.total,  # 总记录数
-        'pages': pagination.pages,  # 总页数
-        'current_page': pagination.page  # 当前页码
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': pagination.page
     }
 
     return jsonify(response_data), 200
@@ -303,68 +296,64 @@ def get_main_discussions():
 def get_detailed_discussions():
     discussion_id = request.args.get('discussion_id', type=int)
 
-    # 验证是否传递了讨论ID
-    print(f"discussion_id={discussion_id}")
     if not discussion_id:
         return jsonify({'error': 'No discussion ID provided'}), 400
 
-    # 获取该讨论
     discussion = Discussion.query.get(discussion_id)
     if not discussion:
         return jsonify({'error': 'Discussion not found'}), 404
 
-    # 获取该讨论的所有回复，并按时间升序排列
-    all_replies = Reply.query.filter(Reply.discussion_id == discussion.id).order_by(Reply.reply_time.asc()).all()
-    print(all_replies)
+    all_replies = Reply.query.filter_by(parent_id=discussion.id).order_by(
+        Reply.reply_time.asc()).all()
 
-    # 构建回复列表
     replies_data = []
     for reply in all_replies:
+        # Fetch the target username based on the target_id
+        target_name = None
+        if reply.target_type == 'reply' and reply.target_id:
+            target_reply = Reply.query.get(reply.target_id)
+            if target_reply:
+                target_replier = User.query.get(target_reply.replier_id)
+                if target_replier:
+                    target_name = target_replier.username
+
         replies_data.append({
             'id': reply.id,
             'replier_name': reply.replier.username if reply.replier else None,
+            'reply_type': reply.target_type,
+            'target_name': target_name,  # Replace target_id with target_name
             'reply_content': reply.reply_content,
             'reply_time': reply.reply_time,
             'like': reply.like
         })
 
-    # 返回该讨论的详细数据（包括回复内容）
     response_data = {
         'discussion_id': discussion.id,
-        'course_name': discussion.course.name if discussion.course else None,  # 从关联的 Course 获取课程名称
-        'author_name': discussion.author.username if discussion.author else None,  # 从关联的 User 获取作者名称
+        'course_name': discussion.course.name if discussion.course else None,
+        'author_name': discussion.author.username if discussion.author else None,
         'content': discussion.content,
         'like': discussion.like,
         'created_at': discussion.created_at,
-        'updated_at': discussion.updated_at,
-        'replies': replies_data  # 包含该讨论的所有子评论（回复内容）
+        'replies': replies_data
     }
-    print(response_data)
 
     return jsonify(response_data), 200
 
 
 @main.route('/api/submit_discussion', methods=['POST'])
 def submit_discussion():
-    # 获取请求数据
     data = request.get_json()
-
-    # 获取用户信息
     user_id = data.get('user_id')
     course_name = data.get('course_name')
     content = data.get('content')
-    print(user_id, course_name, content)
 
-    # 判断必要参数是否存在
     if not user_id or not course_name or not content:
         return jsonify({"message": "缺少必要的参数"}), 400
 
-    # 根据 course_name 查询课程
-    course = Course.query.filter_by(name=course_name).first()  # 使用 filter_by 来根据 name 查找
+    course = Course.query.filter_by(name=course_name).first()
     if not course:
         return jsonify({"message": "无效的课程"}), 404
 
-    # 创建新的讨论
     new_discussion = Discussion(
         author_id=user_id,
         course_id=course.id,
@@ -386,52 +375,38 @@ def submit_discussion():
 @main.route('/api/update_like', methods=['POST'])
 def update_like():
     try:
-        # 从请求中获取参数
         data = request.get_json()
         like_type = data.get('type')
         item_id = data.get('id')
-        user_id = data.get('user_id')
-        print(data, like_type, item_id, user_id)
 
-        if not like_type or not item_id or not user_id:
+        if not like_type or not item_id:
             return jsonify({"error": "Missing required parameters"}), 400
 
-        # 根据类型选择不同的模型和更新逻辑
         if like_type == 'discussion':
-            # 获取讨论
             discussion = Discussion.query.get(item_id)
             if not discussion:
                 return jsonify({"error": "Discussion not found"}), 404
 
-            # 更新讨论的点赞数
             discussion.like = (discussion.like or 0) + 1
             db.session.commit()
 
-            return jsonify({
-                "message": "Like updated successfully",
-                "like": discussion.like
-            })
+            return jsonify({"message": "Like updated successfully", "like": discussion.like})
 
         elif like_type == 'reply':
-            # 获取回复
             reply = Reply.query.get(item_id)
             if not reply:
                 return jsonify({"error": "Reply not found"}), 404
 
-            # 更新回复的点赞数
             reply.like = (reply.like or 0) + 1
             db.session.commit()
 
-            return jsonify({
-                "message": "Like updated successfully",
-                "like": reply.like
-            })
+            return jsonify({"message": "Like updated successfully", "like": reply.like})
 
         else:
             return jsonify({"error": "Invalid like type"}), 400
 
     except Exception as e:
-        db.session.rollback()  # 出错时回滚
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
@@ -440,50 +415,40 @@ def submit_reply():
     data = request.get_json()
 
     user_id = data.get('user_id')
-    discussion_id = data.get('discussion_id')
+    parent_id = data.get('parent_id')
     content = data.get('content')
+    target_type = data.get('target_type')
+    target_id = data.get('target_id')
 
-    if not all([user_id, discussion_id, content]):
+    print(user_id, parent_id, content, target_type, target_id)
+
+    if not all([user_id, parent_id, content, target_type]):
         return jsonify({
             'message': '缺少必要参数',
             'success': False
         }), 400
 
-    discussion = Discussion.query.filter_by(
-        id=discussion_id,
-        is_deleted=False
-    ).first()
-
-    if not discussion:
-        return jsonify({
-            'message': '讨论不存在或已删除',
-            'success': False
-        }), 404
-
     try:
         new_reply = Reply(
-            discussion_id=discussion_id,
+            parent_id=parent_id,
             replier_id=user_id,
+            target_type=target_type,
+            target_id=target_id,
             reply_content=content,
-            like=0,
-            is_deleted=False
+            like=0
         )
 
         db.session.add(new_reply)
         db.session.commit()
 
-        reply_data = new_reply.as_dict()
-
         return jsonify({
             'message': '回复创建成功',
             'success': True,
-            'reply': reply_data
+            'reply': new_reply.as_dict()
         }), 201
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error creating reply: {e}")
-
         return jsonify({
             'message': '回复创建失败',
             'success': False,
