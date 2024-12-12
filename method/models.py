@@ -132,6 +132,7 @@ class Question(db.Model):
     # 关系
     options = db.relationship('QuestionOption', backref='question', lazy=True, cascade='all, delete-orphan')
     flows = db.relationship('QuestionFlow', backref='question', lazy=True, cascade='all, delete-orphan')
+
     # user_answers = db.relationship(
     #     'UserAnswer',
     #     primaryjoin="Question.id == UserAnswer.question_id",
@@ -215,7 +216,7 @@ class UserAnswer(db.Model):
             'user_id': self.user_id,
             'question_id': self.question_id,
             'user_answer': self.user_answer,
-            'score':self.score,
+            'score': self.score,
             'is_correct': self.is_correct,
             'answered_at': self.answered_at,
         }
@@ -232,7 +233,6 @@ class CourseUser(db.Model):
     course_id = db.Column(db.Integer, db.ForeignKey('course.id', ondelete='CASCADE'), primary_key=True)
 
     course_info = db.relationship('Course', backref=db.backref('course_info', lazy=True))
-
 
 
 class CourseContent(db.Model):
@@ -262,13 +262,6 @@ class CourseQuestion(db.Model):
 
     def __repr__(self):
         return f'<CourseQuestion {self.course_id}>'
-
-
-
-
-
-
-
 
 
 class Option(db.Model):
@@ -315,9 +308,6 @@ class Questions(db.Model):
         return f'<Question {self.id}: {self.question_text[:20]}>'
 
 
-
-
-
 class Discussion(db.Model):
     __tablename__ = 'discussions'
 
@@ -327,18 +317,16 @@ class Discussion(db.Model):
 
     like = db.Column(db.Integer, default=0)
     content = db.Column(db.Text, nullable=False)
-    is_deleted = db.Column(db.Boolean, default=False, index=True)
+    teacher_involved = db.Column(db.Boolean, default=False, index=True)
 
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.now())
-    updated_at = db.Column(db.TIMESTAMP, server_default=db.func.now(), onupdate=db.func.now())
 
-    # 关联关系
-    course = db.relationship('Course', backref=db.backref('discussions', lazy='dynamic'))
-    author = db.relationship('User', backref=db.backref('discussions', lazy='dynamic'))
+    # Relationships
+    course = db.relationship('Course', backref='discussions')
+    author = db.relationship('User', backref='discussions')
     replies = db.relationship('Reply',
-                              backref='discussion',
-                              cascade='all, delete-orphan',
-                              primaryjoin='and_(Reply.discussion_id==Discussion.id, Discussion.is_deleted==False)')
+                              primaryjoin='Reply.parent_id==Discussion.id',
+                              cascade='all, delete-orphan')
 
     def as_dict(self):
         return {
@@ -349,10 +337,9 @@ class Discussion(db.Model):
             'course_name': self.course.name if self.course else None,
             'like': self.like,
             'content': self.content,
+            'teacher_involved': self.teacher_involved,
             'created_at': self.created_at,
-            'updated_at': self.updated_at,
-            'replies_count': self.replies.count() if self.replies else 0,
-            'first_reply': {}
+            'replies_count': len(self.replies) if self.replies else 0,
         }
 
     def __repr__(self):
@@ -363,37 +350,56 @@ class Reply(db.Model):
     __tablename__ = 'replies'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    discussion_id = db.Column(db.Integer,
-                              db.ForeignKey('discussions.id', ondelete='CASCADE'),
-                              nullable=False,
-                              index=True)
-    replier_id = db.Column(db.Integer,
-                           db.ForeignKey('users.id'),
-                           nullable=False,
-                           index=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('discussions.id', ondelete='CASCADE'), nullable=False)
+    replier_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    target_type = db.Column(db.Enum('discussion', 'reply', name='target_type_enum'), nullable=False)
+    target_id = db.Column(db.Integer)
 
     like = db.Column(db.Integer, default=0)
     reply_content = db.Column(db.Text, nullable=False)
-    is_deleted = db.Column(db.Boolean, default=False, index=True)
-
     reply_time = db.Column(db.TIMESTAMP, server_default=db.func.now())
 
-    # 关联关系
-    replier = db.relationship('User', backref=db.backref('replies', lazy='dynamic'))
+    # Relationships
+    replier = db.relationship('User', backref='replies')
 
     def as_dict(self):
         return {
             'id': self.id,
-            'discussion_id': self.discussion_id,
+            'parent_id': self.parent_id,
             'replier_id': self.replier_id,
             'replier_name': self.replier.username if self.replier else None,
+            'target_type': self.target_type,
+            'target_id': self.target_id,
             'like': self.like,
             'reply_content': self.reply_content,
             'reply_time': self.reply_time
         }
 
     def __repr__(self):
-        return f'<Reply {self.id} to Discussion {self.discussion_id}: {self.reply_content[:20]}>'
+        return f'<Reply {self.id} to {self.target_type} {self.parent_id}: {self.reply_content[:20]}>'
+
+
+class User_Like_Comment(db.Model):
+    __tablename__ = 'user_like_comment'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    dor = db.Column(db.Enum('discussion', 'reply', name='dor_types'), nullable=False)
+    comment_id = db.Column(db.Integer, nullable=False)
+
+    # 创建唯一约束，防止同一用户对同一评论重复点赞
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'dor', 'comment_id', name='unique_like'),
+        # 索引
+        {'mysql_index': [
+            {'columns': ['user_id']},
+            {'columns': ['dor', 'comment_id']}
+        ]}
+    )
+
+    def __repr__(self):
+        return f'<Like user_id={self.user_id}, dor={self.dor}, comment_id={self.comment_id}>'
 
 
 class UserAnswers(db.Model):
