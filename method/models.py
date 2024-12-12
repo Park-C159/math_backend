@@ -376,6 +376,28 @@ class Reply(db.Model):
         return f'<Reply {self.id} to {self.target_type} {self.parent_id}: {self.reply_content[:20]}>'
 
 
+class User_Like_Comment(db.Model):
+    __tablename__ = 'user_like_comment'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    dor = db.Column(db.Enum('discussion', 'reply', name='dor_types'), nullable=False)
+    comment_id = db.Column(db.Integer, nullable=False)
+
+    # 创建唯一约束，防止同一用户对同一评论重复点赞
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'dor', 'comment_id', name='unique_like'),
+        # 索引
+        {'mysql_index': [
+            {'columns': ['user_id']},
+            {'columns': ['dor', 'comment_id']}
+        ]}
+    )
+
+    def __repr__(self):
+        return f'<Like user_id={self.user_id}, dor={self.dor}, comment_id={self.comment_id}>'
+
+
 class UserAnswers(db.Model):
     __tablename__ = 'user_answers'
 
