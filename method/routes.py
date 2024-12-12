@@ -268,6 +268,10 @@ def get_main_discussions():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     discussions = pagination.items
 
+    # 获取用户的点赞记录
+    user_likes = User_Like_Comment.query.filter_by(user_id=user_id).all() if user_id else []
+    liked_discussions = {like.comment_id for like in user_likes if like.dor == 'discussion'}
+
     discussions_data = []
     for discussion in discussions:
         replies_count = Reply.query.filter_by(parent_id=discussion.id).count()
@@ -278,6 +282,7 @@ def get_main_discussions():
             'author_name': discussion.author.username if discussion.author else None,
             'content': discussion.content,
             'like': discussion.like,
+            'isLiked': discussion.id in liked_discussions,
             'created_at': discussion.created_at,
             'replies_count': replies_count
         })
@@ -295,6 +300,7 @@ def get_main_discussions():
 @main.route('/api/get_detailed_discussions', methods=['GET'])
 def get_detailed_discussions():
     discussion_id = request.args.get('discussion_id', type=int)
+    user_id = request.args.get('user_id')
 
     if not discussion_id:
         return jsonify({'error': 'No discussion ID provided'}), 400
@@ -302,6 +308,11 @@ def get_detailed_discussions():
     discussion = Discussion.query.get(discussion_id)
     if not discussion:
         return jsonify({'error': 'Discussion not found'}), 404
+
+    # 获取用户的点赞记录
+    user_likes = User_Like_Comment.query.filter_by(user_id=user_id).all() if user_id else []
+    liked_discussions = {like.comment_id for like in user_likes if like.dor == 'discussion'}
+    liked_replies = {like.comment_id for like in user_likes if like.dor == 'reply'}
 
     all_replies = Reply.query.filter_by(parent_id=discussion.id).order_by(
         Reply.reply_time.asc()).all()
@@ -321,10 +332,11 @@ def get_detailed_discussions():
             'id': reply.id,
             'replier_name': reply.replier.username if reply.replier else None,
             'reply_type': reply.target_type,
-            'target_name': target_name,  # Replace target_id with target_name
+            'target_name': target_name,
             'reply_content': reply.reply_content,
             'reply_time': reply.reply_time,
-            'like': reply.like
+            'like': reply.like,
+            'isLiked': reply.id in liked_replies
         })
 
     response_data = {
@@ -333,6 +345,7 @@ def get_detailed_discussions():
         'author_name': discussion.author.username if discussion.author else None,
         'content': discussion.content,
         'like': discussion.like,
+        'isLiked': discussion.id in liked_discussions,  # 是否已点赞
         'created_at': discussion.created_at,
         'replies': replies_data
     }
@@ -350,14 +363,23 @@ def submit_discussion():
     if not user_id or not course_name or not content:
         return jsonify({"message": "缺少必要的参数"}), 400
 
+    # 首先查找用户并检查其角色
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "无效的用户"}), 404
+
     course = Course.query.filter_by(name=course_name).first()
     if not course:
         return jsonify({"message": "无效的课程"}), 404
 
+    # 根据用户角色设置 teacher_involved
+    teacher_involved = user.role == 'teacher'
+
     new_discussion = Discussion(
         author_id=user_id,
         course_id=course.id,
-        content=content
+        content=content,
+        teacher_involved=teacher_involved
     )
 
     try:
@@ -376,31 +398,91 @@ def submit_discussion():
 def update_like():
     try:
         data = request.get_json()
+
+        user_id = data.get('user_id')
         like_type = data.get('type')
         item_id = data.get('id')
 
-        if not like_type or not item_id:
+        if not user_id or not like_type or not item_id:
             return jsonify({"error": "Missing required parameters"}), 400
+
+        # 检查是否已经点过赞
+        existing_like = User_Like_Comment.query.filter_by(
+            user_id=user_id,
+            dor=like_type,
+            comment_id=item_id
+        ).first()
+
+        if existing_like:
+            # 如果已经点过赞，则取消点赞
+            if like_type == 'discussion':
+                discussion = Discussion.query.get(item_id)
+                if not discussion:
+                    return jsonify({"error": "Discussion not found"}), 404
+
+                discussion.like = max((discussion.like or 1) - 1, 0)
+
+            elif like_type == 'reply':
+                reply = Reply.query.get(item_id)
+                if not reply:
+                    return jsonify({"error": "Reply not found"}), 404
+
+                reply.like = max((reply.like or 1) - 1, 0)
+
+            db.session.delete(existing_like)
+            db.session.commit()
+
+            return jsonify({
+                "message": "Like removed successfully",
+                "like": discussion.like if like_type == 'discussion' else reply.like,
+                "liked": False  # 返回未点赞状态
+            })
 
         if like_type == 'discussion':
             discussion = Discussion.query.get(item_id)
             if not discussion:
                 return jsonify({"error": "Discussion not found"}), 404
 
+            # 增加点赞数
             discussion.like = (discussion.like or 0) + 1
+
+            # 创建点赞记录
+            new_like = User_Like_Comment(
+                user_id=user_id,
+                dor=like_type,
+                comment_id=item_id
+            )
+            db.session.add(new_like)
             db.session.commit()
 
-            return jsonify({"message": "Like updated successfully", "like": discussion.like})
+            return jsonify({
+                "message": "Like added successfully",
+                "like": discussion.like,
+                "liked": True  # 返回已点赞状态
+            })
 
         elif like_type == 'reply':
             reply = Reply.query.get(item_id)
             if not reply:
                 return jsonify({"error": "Reply not found"}), 404
 
+            # 增加点赞数
             reply.like = (reply.like or 0) + 1
+
+            # 创建点赞记录
+            new_like = User_Like_Comment(
+                user_id=user_id,
+                dor=like_type,
+                comment_id=item_id
+            )
+            db.session.add(new_like)
             db.session.commit()
 
-            return jsonify({"message": "Like updated successfully", "like": reply.like})
+            return jsonify({
+                "message": "Like added successfully",
+                "like": reply.like,
+                "liked": True  # 返回已点赞状态
+            })
 
         else:
             return jsonify({"error": "Invalid like type"}), 400
@@ -420,8 +502,6 @@ def submit_reply():
     target_type = data.get('target_type')
     target_id = data.get('target_id')
 
-    print(user_id, parent_id, content, target_type, target_id)
-
     if not all([user_id, parent_id, content, target_type]):
         return jsonify({
             'message': '缺少必要参数',
@@ -429,6 +509,15 @@ def submit_reply():
         }), 400
 
     try:
+        # 检查回复者的角色
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({
+                'message': '无效的用户',
+                'success': False
+            }), 404
+
+        # 创建新的回复
         new_reply = Reply(
             parent_id=parent_id,
             replier_id=user_id,
@@ -440,6 +529,14 @@ def submit_reply():
 
         db.session.add(new_reply)
         db.session.commit()
+
+        # 检查是否需要更新 teacher_involved
+        if user.role == 'teacher':
+            # 获取父级讨论
+            parent = Discussion.query.get(parent_id)
+            if parent and not parent.teacher_involved:
+                parent.teacher_involved = True
+                db.session.commit()
 
         return jsonify({
             'message': '回复创建成功',
