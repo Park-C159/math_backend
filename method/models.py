@@ -181,7 +181,6 @@ class User(db.Model):
 
     user_info = db.relationship('CourseUser', backref=db.backref('user_info', lazy=True))
 
-
     def as_dict(self):
         return {
             'id': self.id,
@@ -414,3 +413,41 @@ class UserAnswers(db.Model):
 
     def __repr__(self):
         return f"<UserAnswer(id={self.id}, user_id={self.user_id}, question_id={self.question_id}, is_correct={self.is_correct})>"
+
+
+class Category(db.Model):
+    __tablename__ = 'categories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+
+    nodes = db.relationship('Node', backref='category_nodes', lazy=True)
+
+    def __repr__(self):
+        return f"<Category(id={self.id}, name={self.name})>"
+
+
+class Node(db.Model):
+    __tablename__ = 'nodes'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255))
+    value = db.Column(db.Integer)
+    category = db.Column(db.Integer, db.ForeignKey('categories.id'))
+
+    def __repr__(self):
+        return f"<Node(id={self.id}, name={self.name}, value={self.value}, category={self.category})>"
+
+
+class Link(db.Model):
+    __tablename__ = 'links'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(255))
+    source = db.Column(db.Integer, db.ForeignKey('nodes.id'))
+    target = db.Column(db.Integer, db.ForeignKey('nodes.id'))
+
+    source_nodes = db.relationship("Node", foreign_keys=[source], backref="source_links")
+    target_nodes = db.relationship("Node", foreign_keys=[target], backref="target_links")
+
+    def __repr__(self):
+        return f"<Link(id={self.id}, name={self.name}, source={self.source}, target={self.target})>"

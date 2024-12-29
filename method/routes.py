@@ -1,5 +1,6 @@
 import base64
 import json
+import random
 from datetime import datetime, timedelta
 
 import os
@@ -1463,9 +1464,16 @@ def users():
             return create_response(400, "缺少参数user_id")
 
         course_users = CourseUser.query.filter(CourseUser.user_id == id).all()
-        for course_user in course_users:
-            db.session.delete(course_user)
-        db.session.flush()
+        if course_users is not None:
+            for course_user in course_users:
+                db.session.delete(course_user)
+            db.session.flush()
+
+        discussion_entries = Discussion.query.filter(Discussion.author_id == id).all()
+        if discussion_entries is not None:
+            for discussion_entry in discussion_entries:
+                db.session.delete(discussion_entry)
+            db.session.flush()
 
         user_entry = User.query.get(id)
         if not user_entry:
@@ -1510,4 +1518,87 @@ def users():
             return create_response(400, f"更新失败: {str(e)}")
 
 
+@main.route("/api/knowledge_graph", methods=['GET', 'POST'])
+def knowledge_graph():
+    if request.method == "GET":
+        nodes_data = {}
+        nodes_map = {}
+        # 生成窗口函数 ROW_NUMBER() 和 PARTITION BY category，ORDER BY value DESC
+        ranked_nodes = (
+            db.session.query(
+                Node.id,
+                Node.name,
+                Node.value,
+                Node.category,
+                db.func.row_number().over(partition_by=Node.category, order_by=Node.value.desc()).label('rn')
+            )
+            .subquery()
+        )
 
+        # 现在查询前 5 名节点
+        nodes = db.session.query(ranked_nodes.c.id, ranked_nodes.c.name, ranked_nodes.c.value, ranked_nodes.c.category) \
+            .filter(ranked_nodes.c.rn <= 5) \
+            .all()
+
+        node_sum = 0
+
+        for row in nodes:
+            node_sum += row[2]
+
+        # 打印每一行（可选调试输出）
+        for row in nodes:
+            if row[3] == 1:
+                continue
+
+            if row[2] > 100:
+                value = int(row[2] / node_sum * 100)
+                if value < 10:
+                    value = 10
+            else:
+                value = row[2]
+            # nodes_data.append({
+            #     "id": row[0],
+            #     "name": row[1],
+            #     "value": value,
+            #     "symbolSize": value,
+            #     "category": row[3],
+            # })
+            nodes_map[row[0]] = {
+                "id": row[0],
+                "name": row[1],
+                "value": value,
+                "symbolSize": value,
+                "category": row[3],
+            }
+
+
+        categories = Category.query.all()
+        categories_data = []
+        for category in categories:
+            categories_data.append({
+                "id": category.id,
+                "name": category.name,
+            })
+
+        links = Link.query.all()
+        links_data = []
+
+        for link in links:
+            if link.source in nodes_map and link.target in nodes_map:
+                links_data.append({
+                    "id": link.id,
+                    "name": link.name,
+                    "source": link.source,
+                    "target": link.target,
+                })
+                nodes_data[link.source] = nodes_map[link.source]
+                nodes_data[link.target] = nodes_map[link.target]
+        nodes_data = list(nodes_data.values())
+        # random.shuffle(nodes_data)
+
+        graph = {
+            "nodes": nodes_data,
+            "categories": categories_data,
+            "links": links_data,
+        }
+        return create_response(200, "ok", graph)
