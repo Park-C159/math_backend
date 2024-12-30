@@ -1518,6 +1518,9 @@ def users():
             return create_response(400, f"更新失败: {str(e)}")
 
 
+category_list = (10, 11, 13, 16, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32)
+
+
 @main.route("/api/knowledge_graph", methods=['GET', 'POST'])
 def knowledge_graph():
     if request.method == "GET":
@@ -1537,7 +1540,7 @@ def knowledge_graph():
 
         # 现在查询前 5 名节点
         nodes = db.session.query(ranked_nodes.c.id, ranked_nodes.c.name, ranked_nodes.c.value, ranked_nodes.c.category) \
-            .filter(ranked_nodes.c.rn <= 5) \
+            .filter(ranked_nodes.c.rn <= 8) \
             .all()
 
         node_sum = 0
@@ -1563,6 +1566,8 @@ def knowledge_graph():
             #     "symbolSize": value,
             #     "category": row[3],
             # })
+            if row[3] in category_list:
+                break
             nodes_map[row[0]] = {
                 "id": row[0],
                 "name": row[1],
@@ -1571,10 +1576,11 @@ def knowledge_graph():
                 "category": row[3],
             }
 
-
         categories = Category.query.all()
         categories_data = []
         for category in categories:
+            if category.id in category_list:
+                break
             categories_data.append({
                 "id": category.id,
                 "name": category.name,
@@ -1594,7 +1600,7 @@ def knowledge_graph():
                 nodes_data[link.source] = nodes_map[link.source]
                 nodes_data[link.target] = nodes_map[link.target]
         nodes_data = list(nodes_data.values())
-        # random.shuffle(nodes_data)
+        random.shuffle(nodes_data)
 
         graph = {
             "nodes": nodes_data,
