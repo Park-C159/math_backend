@@ -11,6 +11,13 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.functions import current_user
 from werkzeug.utils import secure_filename
 
+from datetime import datetime
+import os
+import base64
+from werkzeug.utils import secure_filename
+import fitz  # PyMuPDF库用于处理PDF
+from PIL import Image
+
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
@@ -995,82 +1002,170 @@ def get_course_answers():
 
 
 # 检查文件是否是允许的类型
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+def allowed_file(filename, file_type=None):
+    if '.' not in filename:
+        return False
+    extension = filename.rsplit('.', 1)[1].lower()
+    if file_type == 'image':
+        return extension in Config.ALLOWED_IMAGE_EXTENSIONS
+    elif file_type == 'pdf':
+        return extension in Config.ALLOWED_PDF_EXTENSIONS
+    return extension in (Config.ALLOWED_IMAGE_EXTENSIONS | Config.ALLOWED_PDF_EXTENSIONS)
+
+
+def process_image(file, filename):
+    """处理图片文件"""
+    try:
+        # 验证是否为有效图片
+        img = Image.open(file)
+        img.verify()
+
+        # 重新打开文件（verify会关闭文件）
+        file.seek(0)
+
+        # 生成唯一文件名
+        unique_filename = f"img_{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}"
+        file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
+
+        # 保存文件
+        file.save(file_path)
+        return True, file_path, "图片上传成功"
+    except Exception as e:
+        return False, None, f"图片处理失败: {str(e)}"
+
+
+def process_pdf(file, filename):
+    """处理PDF文件"""
+    try:
+        # 生成唯一文件名
+        unique_filename = f"pdf_{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}"
+        print(unique_filename)
+        file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
+        print(file_path)
+
+        # 保存PDF文件
+        file.save(file_path)
+
+        # 验证PDF文件
+        pdf_document = fitz.open(file_path)
+
+        # 获取PDF信息
+        pdf_info = {
+            'pages': len(pdf_document),
+            'title': pdf_document.metadata.get('title', ''),
+            'author': pdf_document.metadata.get('author', ''),
+            'file_path': file_path
+        }
+
+        pdf_document.close()
+        return True, pdf_info, "PDF上传成功"
+    except Exception as e:
+        # 如果处理失败，删除已上传的文件
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return False, None, f"PDF处理失败: {str(e)}"
 
 
 @main.route('/api/upload', methods=['POST', 'GET', 'DELETE', 'PUT'])
 def manage_files():
     if request.method == 'POST':
-        # 处理文件上传
         if 'file' not in request.files:
             return create_response(400, 'No file part in the request')
 
         file = request.files['file']
-
         if file.filename == '':
             return create_response(400, 'No file selected')
 
-        if file and allowed_file(file.filename):
-            # 确保文件名安全
-            filename = secure_filename(file.filename)
+        # 获取文件类型
+        file_type = request.form.get('file_type', 'image')  # 从请求中获取文件类型
+        filename = file.filename
 
-            # 添加时间戳生成唯一文件名
-            unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}"
+        # 根据文件类型分别处理
+        if file_type == 'pdf' and allowed_file(filename, 'pdf'):
+            success, result, message = process_pdf(file, filename)
+            if success:
+                file_url = f"/uploads/{os.path.basename(result['file_path'])}"
+                return create_response(200, message, file_url)
+            return create_response(400, message)
 
-            # 保存文件
-            file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
-            file.save(file_path)
+        elif file_type == 'image' and allowed_file(filename, 'image'):
+            success, result, message = process_image(file, filename)
+            if success:
+                file_url = f"/uploads/{os.path.basename(result)}"
+                return create_response(200, message, file_url)
+            return create_response(400, message)
 
-            return create_response(200, '图片上传成功', file_path)
-        else:
-            return create_response(400, '非法图片格式')
+        return create_response(400, '不支持的文件格式或文件类型不匹配')
 
     elif request.method == 'GET':
-        # 获取文件列表
-        files = os.listdir(Config.UPLOAD_FOLDER)
-        file_urls = [
-            {
-                "file_name": file,
-                "file_path": f"http://localhost:5000/uploads/{file}"
-            }
-            for file in files
-        ]
-        return jsonify({'files': file_urls}), 200
+        try:
+            files = os.listdir(Config.UPLOAD_FOLDER)
+            file_list = []
+            for file in files:
+                file_type = 'image' if file.startswith('img_') else 'pdf' if file.startswith('pdf_') else 'unknown'
+                if file_type != 'unknown':  # 只返回有效的文件
+                    file_list.append({
+                        "file_name": file,
+                        "file_type": file_type,
+                        "file_path": f"/uploads/{file}"
+                    })
+            return jsonify({'files': file_list}), 200
+        except Exception as e:
+            return create_response(500, f"获取文件列表失败: {str(e)}")
 
     elif request.method == 'DELETE':
-        # 删除指定文件
         file_name = request.args.get('file_name')
         if not file_name:
-            return create_response(400, "非法格式图片")
+            return create_response(400, "无效的文件名")
 
-        file_path = file_name
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return create_response(200, "图片已移除！")
-        else:
-            return create_response(404, "当前图片不存在")
+        try:
+            file_path = os.path.join(Config.UPLOAD_FOLDER, secure_filename(file_name))
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                os.remove(file_path)
+                return create_response(200, "文件已删除")
+            return create_response(404, "文件不存在")
+        except Exception as e:
+            return create_response(500, f"删除文件失败: {str(e)}")
 
     elif request.method == 'PUT':
-        data = request.json
-        image_name = data.get('image_name')
-        image_data = data.get('image')
-        if not image_name or not image_data:
-            return create_response(400, "数据冲突")
         try:
-            # 解码 base64 编码的图像数据
-            image_data = image_data.split(",")[1]  # 去掉 'data:image/png;base64,' 这一部分
-            img_binary = base64.b64decode(image_data)
-            file_path = image_name
+            data = request.json
+            if not data:
+                return create_response(400, "请求数据为空")
 
+            file_name = data.get('file_name')
+            file_data = data.get('file_data')
+            file_type = data.get('file_type', 'image')
+
+            if not file_name or not file_data:
+                return create_response(400, "数据不完整")
+
+            # 验证文件名
+            file_name = secure_filename(file_name)
+            if not allowed_file(file_name, file_type):
+                return create_response(400, "不支持的文件格式")
+
+            # 解码base64数据
+            try:
+                file_data = file_data.split(",")[1] if "," in file_data else file_data
+                file_binary = base64.b64decode(file_data)
+            except Exception:
+                return create_response(400, "无效的文件数据格式")
+
+            # 生成文件路径
+            prefix = 'img_' if file_type == 'image' else 'pdf_'
+            unique_filename = f"{prefix}{datetime.now().strftime('%Y%m%d%H%M%S')}_{file_name}"
+            file_path = os.path.join(Config.UPLOAD_FOLDER, unique_filename)
+
+            # 保存文件
             with open(file_path, 'wb') as f:
-                f.write(img_binary)
+                f.write(file_binary)
 
-            return create_response(200, "图片保存成功！", file_path)
+            return create_response(200, "文件保存成功", f"/uploads/{unique_filename}")
         except Exception as e:
-            return create_response(500, str(e))
+            return create_response(500, f"保存文件失败: {str(e)}")
 
-        return create_response(200, "图片保存成功")
+    return create_response(405, "不支持的请求方法")
 
 
 @main.route('/api/uploads/<filename>', methods=['GET'])
