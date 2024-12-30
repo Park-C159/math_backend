@@ -272,6 +272,8 @@ def get_main_discussions():
         elif author_filter == 'teacher_involved':
             query = query.filter(Discussion.teacher_involved == True)
 
+    query = query.order_by(Discussion.created_at.desc())
+
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     discussions = pagination.items
 
@@ -322,7 +324,7 @@ def get_detailed_discussions():
     liked_replies = {like.comment_id for like in user_likes if like.dor == 'reply'}
 
     all_replies = Reply.query.filter_by(parent_id=discussion.id).order_by(
-        Reply.reply_time.asc()).all()
+        Reply.reply_time.desc()).all()
 
     replies_data = []
     for reply in all_replies:
