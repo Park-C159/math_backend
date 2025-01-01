@@ -1172,11 +1172,14 @@ def manage_files():
 @main.route('/api/uploads/<filename>', methods=['GET'])
 def uploaded_file(filename):
     try:
-        # 返回文件内容
         upload_folder = os.path.join(os.getcwd(), Config.UPLOAD_FOLDER)
-        return send_from_directory(upload_folder, filename)
+        # 添加 mimetype 参数，指定为 application/pdf
+        return send_from_directory(
+            upload_folder,
+            filename,
+            mimetype='application/pdf'
+        )
     except FileNotFoundError:
-        # 如果文件不存在，返回 404
         return jsonify({'error': 'File not found'}), 404
 
 
@@ -1529,3 +1532,47 @@ def download_user_marks():
     result = list(user_scores_map.values())
 
     return create_response(200, "ok", result)
+
+
+@main.route('/api/tags', methods=['GET'])
+def get_tags():
+    """获取所有话题标签列表"""
+    topics = Topic.query.all()
+    tags = [{'id': topic.id, 'name': topic.tag} for topic in topics]
+    return jsonify(tags)
+
+
+@main.route('/api/topics/<int:topic_id>', methods=['GET'])
+def get_topic_content(topic_id):
+    """获取指定话题的详细内容"""
+    topic = Topic.query.get(topic_id)
+
+    if not topic:
+        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
+
+    # 获取该话题的所有评论
+    comments = TopicComment.query.filter_by(topic_id=topic_id).all()
+
+    # 格式化评论数据
+    formatted_comments = []
+    for comment in comments:
+        formatted_comments.append({
+            'id': comment.id,
+            'user': comment.user,
+            'content': comment.content,
+            'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
+        })
+
+    # 构造返回的数据
+    tag_content = {
+        'description': topic.content if topic.content else '',  # 如果没有内容，返回空字符串
+        'pdfUrl': topic.pdf_url if topic.pdf_url else '',  # 如果没有pdf链接，返回空字符串
+        'comments': formatted_comments
+    }
+
+    # 返回数据的外层结构
+    tag_contents = {
+        topic.id: tag_content
+    }
+
+    return jsonify(tag_contents)
