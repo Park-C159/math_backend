@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import os
 from flask import Blueprint, jsonify, request, send_file, send_from_directory
+from flask_socketio import emit
 from sqlalchemy import and_
 import pandas as pd
 from sqlalchemy.orm import joinedload
@@ -18,6 +19,7 @@ from werkzeug.utils import secure_filename
 import fitz  # PyMuPDF库用于处理PDF
 from PIL import Image
 
+from . import socketio
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
@@ -1705,3 +1707,13 @@ def knowledge_graph():
             "links": links_data,
         }
         return create_response(200, "ok", graph)
+
+@socketio.on('message')
+def chat_ai(message):
+    print("message:", message)
+
+    # 在这里处理前端发送的消息并返回响应
+    response = f"Server received your message: {message}"
+
+    # 发送响应回前端
+    emit('response', response)
