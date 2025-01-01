@@ -1550,10 +1550,8 @@ def get_topic_content(topic_id):
     if not topic:
         return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
 
-    # 获取该话题的所有评论
     comments = TopicComment.query.filter_by(topic_id=topic_id).all()
 
-    # 格式化评论数据
     formatted_comments = []
     for comment in comments:
         formatted_comments.append({
@@ -1563,14 +1561,12 @@ def get_topic_content(topic_id):
             'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
         })
 
-    # 构造返回的数据
     tag_content = {
-        'description': topic.content if topic.content else '',  # 如果没有内容，返回空字符串
-        'pdfUrl': topic.pdf_url if topic.pdf_url else '',  # 如果没有pdf链接，返回空字符串
+        'description': topic.content if topic.content else '',
+        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
         'comments': formatted_comments
     }
 
-    # 返回数据的外层结构
     tag_contents = {
         topic.id: tag_content
     }
