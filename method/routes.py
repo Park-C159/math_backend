@@ -1708,6 +1708,7 @@ def knowledge_graph():
         }
         return create_response(200, "ok", graph)
 
+
 @socketio.on('message')
 def chat_ai(message):
     print("message:", message)
@@ -1717,3 +1718,47 @@ def chat_ai(message):
 
     # 发送响应回前端
     emit('response', response)
+
+
+@main.route('/api/tags', methods=['GET'])
+def get_tags():
+    """获取所有话题标签列表"""
+    topics = Topic.query.all()
+    tags = [{'id': topic.id, 'name': topic.tag} for topic in topics]
+    return jsonify(tags)
+
+
+@main.route('/api/topics/<int:topic_id>', methods=['GET'])
+def get_topic_content(topic_id):
+    """获取指定话题的详细内容"""
+    topic = Topic.query.get(topic_id)
+
+    if not topic:
+        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
+
+    # 获取该话题的所有评论
+    comments = TopicComment.query.filter_by(topic_id=topic_id).all()
+
+    # 格式化评论数据
+    formatted_comments = []
+    for comment in comments:
+        formatted_comments.append({
+            'id': comment.id,
+            'user': comment.user,
+            'content': comment.content,
+            'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
+        })
+
+    # 构造返回的数据
+    tag_content = {
+        'description': topic.content if topic.content else '',
+        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
+        'comments': formatted_comments
+    }
+
+    # 返回数据的外层结构
+    tag_contents = {
+        topic.id: tag_content
+    }
+
+    return jsonify(tag_contents)
