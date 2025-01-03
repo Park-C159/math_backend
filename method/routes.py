@@ -241,10 +241,10 @@ def get_questions():
 @main.route('/api/get_main_discussions', methods=['GET'])
 def get_main_discussions():
     course_name = request.args.get('course_name')
-    page = request.args.get('page', 1, type=int)  # 页码，默认1
-    per_page = request.args.get('per_page', 5, type=int)  # 每页记录数，默认5
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 5, type=int)
     search = request.args.get('search')
-    time_filter = request.args.get('time_filter')  # 时间筛选
+    time_filter = request.args.get('time_filter')
     author_filter = request.args.get('author_filter', type=str)
     user_id = request.args.get('user_id')
 
@@ -292,6 +292,7 @@ def get_main_discussions():
             'id': discussion.id,
             'course_name': course.name,
             'author_name': discussion.author.username if discussion.author else None,
+            'author_role': discussion.author.role if discussion.author else None,
             'content': discussion.content,
             'like': discussion.like,
             'isLiked': discussion.id in liked_discussions,
@@ -343,6 +344,7 @@ def get_detailed_discussions():
         replies_data.append({
             'id': reply.id,
             'replier_name': reply.replier.username if reply.replier else None,
+            'replier_role': reply.replier.role if reply.replier else None,
             'reply_type': reply.target_type,
             'target_name': target_name,
             'reply_content': reply.reply_content,
@@ -399,7 +401,10 @@ def submit_discussion():
         db.session.commit()
         return jsonify({
             "message": "讨论创建成功",
-            "discussion": new_discussion.as_dict()
+            "discussion": {
+                **new_discussion.as_dict(),
+                "author_role": user.role
+            }
         }), 201
     except Exception as e:
         db.session.rollback()
@@ -553,7 +558,10 @@ def submit_reply():
         return jsonify({
             'message': '回复创建成功',
             'success': True,
-            'reply': new_reply.as_dict()
+            'reply': {
+                **new_reply.as_dict(),
+                'replier_role': user.role
+            }
         }), 201
 
     except Exception as e:
