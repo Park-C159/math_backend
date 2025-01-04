@@ -19,7 +19,6 @@ from werkzeug.utils import secure_filename
 import fitz  # PyMuPDF库用于处理PDF
 from PIL import Image
 
-from . import socketio
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
@@ -1708,12 +1707,42 @@ def knowledge_graph():
         }
         return create_response(200, "ok", graph)
 
-@socketio.on('message')
-def chat_ai(message):
-    print("message:", message)
+@main.route("/api/save_messages", methods=['PUT'])
+def save_messages():
+    if request.method == "PUT":
+        data = request.get_json()
+        session_id = data.get('session_id')
+        user_id = data.get('user_id')
+        messages = data.get('messages', [])
 
-    # 在这里处理前端发送的消息并返回响应
-    response = f"Server received your message: {message}"
+        if not session_id or not messages:
+            return create_response(400, "没有session_id或消息为空")
 
-    # 发送响应回前端
-    emit('response', response)
+        # 保存到数据库 (假设有数据库模型 Message 和 Session)
+        try:
+            # 查询是否已经存在 session_id
+            session = Session.query.filter_by(session_id=session_id).first()
+
+            if not session:
+                # 如果会话不存在，创建新会话并保存
+                session = Session(session_id=session_id, user_id=user_id)
+                db.session.add(session)  # 添加会话
+                db.session.commit()  # 提交会话数据以便为后续消息使用
+
+            # 保存每条消息
+            for msg in messages:
+                new_message = Message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    message=msg['content'],
+                    message_type=msg['type']
+                )
+                db.session.add(new_message)
+
+            db.session.commit()  # 提交所有消息
+            return create_response(200, "消息保存成功")
+        except Exception as e:
+            db.session.rollback()
+            # 可以打印异常到日志以便调试
+            print(f"数据库异常: {str(e)}")
+            return create_response(500, "数据库异常")
