@@ -83,15 +83,14 @@ class ChatNamespace(Namespace):
         self.history = []  # 对话历史
 
     def on_connect(self):
-        print("Client connected")
         self.connected = True
         # 为新连接生成唯一 session_id
         self.session_id = str(uuid.uuid4())
-        print(f"New session_id: {self.session_id}")
         # 初始化对话历史
         self.history = [
             {"role": "user", "content": "你是一个AI数学助手，你将帮助大学生解答各方面的数学疑问。"}
         ]
+        emit('session_id', {'session_id': self.session_id})
 
     def on_disconnect(self):
         print(f"Client disconnected (session_id: {self.session_id})")

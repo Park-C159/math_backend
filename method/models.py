@@ -477,3 +477,32 @@ class TopicComment(db.Model):
 
     def __repr__(self):
         return f"<Comment(id={self.id}, user='{self.user}')>"
+
+
+class Session(db.Model):
+    __tablename__ = 'sessions'
+
+    session_id = db.Column(db.String(36), primary_key=True)  # 会话ID（UUID）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))  # 外键关联用户表
+    user = db.relationship('User', backref='sessions')  # 反向关系，用户有多个会话
+
+    messages = db.relationship('Message', backref='session', lazy=True)  # 会话关联多条消息
+
+    def __repr__(self):
+        return f"<Session(session_id={self.session_id}, user_id={self.user_id})>"
+
+
+class Message(db.Model):
+    __tablename__ = 'messages'
+
+    message_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # 消息ID
+    session_id = db.Column(db.String(36), db.ForeignKey('sessions.session_id'), nullable=False)  # 外键关联会话
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 外键关联用户
+    message = db.Column(db.Text, nullable=False)  # 消息内容
+    message_type = db.Column(db.Enum('user', 'assistant', name='message_type_enum'), nullable=False)  # 消息类型（用户或生成结果）
+    timestamp = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())  # 消息时间戳，默认为当前时间
+
+    user = db.relationship('User', backref='messages')  # 用户有多条消息
+
+    def __repr__(self):
+        return f"<Message(message_id={self.message_id}, session_id={self.session_id}, user_id={self.user_id}, message_type={self.message_type}, timestamp={self.timestamp})>"
