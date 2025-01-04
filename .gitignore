@@ -5,4 +5,4 @@ uploads/*
 method/__pycache__
 config.py
 
-models
+models/*
