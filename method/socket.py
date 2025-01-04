@@ -92,6 +92,7 @@ class ChatNamespace(Namespace):
         self.history = [
             {"role": "user", "content": "你是一个AI数学助手，你将帮助大学生解答各方面的数学疑问。"}
         ]
+        emit('session_id', {'session_id': self.session_id})
 
     def on_disconnect(self):
         print(f"Client disconnected (session_id: {self.session_id})")
