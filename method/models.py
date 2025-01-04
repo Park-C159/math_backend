@@ -453,6 +453,32 @@ class Link(db.Model):
         return f"<Link(id={self.id}, name={self.name}, source={self.source}, target={self.target})>"
 
 
+# 话题
+class Topic(db.Model):
+    __tablename__ = 'topics'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tag = db.Column(db.String(255), nullable=False, index=True)
+    content = db.Column(db.Text)
+    pdf_url = db.Column(db.String(500))
+
+    def __repr__(self):
+        return f"<Topic(id={self.id}, tag='{self.tag}')>"
+
+
+class TopicComment(db.Model):
+    __tablename__ = 'topic_comment'
+
+    id = db.Column(db.Integer, primary_key=True)
+    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False)
+    user = db.Column(db.String(100), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
+    def __repr__(self):
+        return f"<Comment(id={self.id}, user='{self.user}')>"
+
+
 class Session(db.Model):
     __tablename__ = 'sessions'
 
