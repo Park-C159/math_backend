@@ -291,6 +291,7 @@ def get_main_discussions():
             'id': discussion.id,
             'course_name': course.name,
             'author_name': discussion.author.username if discussion.author else None,
+            'author_role': discussion.author.role if discussion.author else None,
             'content': discussion.content,
             'like': discussion.like,
             'isLiked': discussion.id in liked_discussions,
@@ -326,7 +327,7 @@ def get_detailed_discussions():
     liked_replies = {like.comment_id for like in user_likes if like.dor == 'reply'}
 
     all_replies = Reply.query.filter_by(parent_id=discussion.id).order_by(
-        Reply.reply_time.desc()).all()
+        Reply.reply_time.asc()).all()
 
     replies_data = []
     for reply in all_replies:
@@ -342,6 +343,7 @@ def get_detailed_discussions():
         replies_data.append({
             'id': reply.id,
             'replier_name': reply.replier.username if reply.replier else None,
+            'replier_role': reply.replier.role if reply.replier else None,
             'reply_type': reply.target_type,
             'target_name': target_name,
             'reply_content': reply.reply_content,
@@ -398,7 +400,10 @@ def submit_discussion():
         db.session.commit()
         return jsonify({
             "message": "讨论创建成功",
-            "discussion": new_discussion.as_dict()
+            "discussion": {
+                **new_discussion.as_dict(),
+                "author_role": user.role
+            }
         }), 201
     except Exception as e:
         db.session.rollback()
@@ -552,7 +557,10 @@ def submit_reply():
         return jsonify({
             'message': '回复创建成功',
             'success': True,
-            'reply': new_reply.as_dict()
+            'reply': {
+                **new_reply.as_dict(),
+                'replier_role': user.role
+            }
         }), 201
 
     except Exception as e:
@@ -562,6 +570,54 @@ def submit_reply():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@main.route('/api/comments/delete', methods=['POST'])
+def delete_comment():
+    try:
+        data = request.get_json()
+        comment_type = data.get('comment_type')
+        comment_id = data.get('comment_id')
+
+        if not comment_type or not comment_id:
+            return jsonify({'status': 'error', 'message': '缺少必要参数'}), 400
+
+        if comment_type == 'discussion':
+            comment = Discussion.query.get(comment_id)
+            if not comment:
+                return jsonify({'status': 'error', 'message': '讨论不存在'}), 404
+
+            # 删除讨论
+            db.session.delete(comment)
+            db.session.commit()
+
+        elif comment_type == 'reply':
+            comment = Reply.query.get(comment_id)
+            if not comment:
+                return jsonify({'status': 'error', 'message': '回复不存在'}), 404
+
+            # 获取关联的父级讨论
+            parent = Discussion.query.get(comment.parent_id)
+
+            # 删除回复
+            db.session.delete(comment)
+            db.session.commit()
+
+            # 更新父级讨论的 teacher_involved 参数
+            if parent:
+                teacher_involved_replies = Reply.query.filter_by(parent_id=parent.id).join(User).filter(
+                    User.role == 'teacher').count()
+                if teacher_involved_replies == 0:
+                    parent.teacher_involved = False
+                    db.session.commit()
+
+        else:
+            return jsonify({'status': 'error', 'message': '未知的 comment_type'}), 400
+
+        return jsonify({'status': 'success', 'message': '评论已成功删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'发生错误: {str(e)}'}), 500
 
 
 @main.route('/api/is_tautology', methods=['GET'])
@@ -1707,6 +1763,7 @@ def knowledge_graph():
         }
         return create_response(200, "ok", graph)
 
+
 @main.route("/api/save_messages", methods=['PUT'])
 def save_messages():
     if request.method == "PUT":
@@ -1751,14 +1808,35 @@ def save_messages():
 @main.route('/api/tags', methods=['GET'])
 def get_tags():
     """获取所有话题标签列表"""
-    topics = Topic.query.all()
-    tags = [{'id': topic.id, 'name': topic.tag} for topic in topics]
+    course_name = request.args.get('course_name', type=str)
+    if not course_name:
+        return jsonify({"error": "Course name is required"}), 400
+
+    course = Course.query.filter_by(name=course_name).first()
+    if not course:
+        return jsonify({"error": f"Course with name '{course_name}' not found"}), 404
+
+    course_id = course.id
+    if not course_id:
+        return jsonify({"error": "Course ID is required"}), 400
+
+    topics = Topic.query.filter_by(course_id=course_id).all()
+    if not topics:
+        return jsonify({"error": f"No topics found for course ID {course_id}"}), 404
+
+    tags = [{
+        'id': topic.id,
+        'name': topic.tag,
+        'start_time': topic.start_time,
+        'end_time': topic.end_time
+    } for topic in topics]
+
     return jsonify(tags)
 
 
 @main.route('/api/topics/<int:topic_id>', methods=['GET'])
 def get_topic_content(topic_id):
-    """获取指定话题的详细内容"""
+    """获取指定话题的详细内容及其所有评论"""
     topic = Topic.query.get(topic_id)
 
     if not topic:
@@ -1768,25 +1846,66 @@ def get_topic_content(topic_id):
     comments = TopicComment.query.filter_by(topic_id=topic_id).all()
 
     # 格式化评论数据
-    formatted_comments = []
-    for comment in comments:
-        formatted_comments.append({
-            'id': comment.id,
-            'user': comment.user,
-            'content': comment.content,
-            'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
-        })
+    formatted_comments = [{
+        'id': comment.id,
+        'userName': comment.user.username,
+        'userRole': comment.user.role,
+        'content': comment.content,
+        'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
+    } for comment in comments]
 
-    # 构造返回的数据
-    tag_content = {
+    # 构造返回的数据，包含所有话题数据
+    topic_content = {
+        'id': topic.id,
         'description': topic.content if topic.content else '',
         'pdfUrl': topic.pdf_url if topic.pdf_url else '',
+        'userName': topic.user.username,
+        'userRole': topic.user.role,
+        'startTime': topic.start_time.strftime('%Y-%m-%d %H:%M') if topic.start_time else None,
+        'endTime': topic.end_time.strftime('%Y-%m-%d %H:%M') if topic.end_time else None,
         'comments': formatted_comments
     }
 
-    # 返回数据的外层结构
-    tag_contents = {
-        topic.id: tag_content
-    }
+    return jsonify(topic_content)
 
-    return jsonify(tag_contents)
+
+@main.route('/api/submit_topic_discussion', methods=['POST'])
+def submit_topic_discussion():
+    data = request.get_json()
+    user_id = data.get('user_id')
+    topic_id = data.get('topic_id')
+    content = data.get('content')
+
+    # 参数验证
+    if not user_id or not topic_id or not content:
+        return jsonify({"message": "缺少必要的参数"}), 400
+
+    # 查找用户
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"message": "无效的用户"}), 404
+
+    # 查找话题
+    topic = Topic.query.get(topic_id)
+    if not topic:
+        return jsonify({"message": "话题不存在"}), 404
+
+    try:
+        # 创建新的评论
+        new_comment = TopicComment(
+            topic_id=topic_id,
+            user_id=user_id,
+            content=content
+        )
+
+        # 添加到数据库
+        db.session.add(new_comment)
+        db.session.commit()
+
+        # 返回简化的评论数据，避免循环引用
+        return jsonify({"message": "评论提交成功", }), 201
+
+    except Exception as e:
+        # 发生错误时回滚
+        db.session.rollback()
+        return jsonify({"message": f"评论提交失败: {str(e)}"}), 500
