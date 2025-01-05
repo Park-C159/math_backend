@@ -453,30 +453,44 @@ class Link(db.Model):
         return f"<Link(id={self.id}, name={self.name}, source={self.source}, target={self.target})>"
 
 
-# 话题
 class Topic(db.Model):
     __tablename__ = 'topics'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     tag = db.Column(db.String(255), nullable=False, index=True)
     content = db.Column(db.Text)
     pdf_url = db.Column(db.String(500))
 
+    # 新增字段
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'))  # 关联 course 表
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 关联 users 表
+    start_time = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), nullable=False)  # 默认当前时间
+    end_time = db.Column(db.TIMESTAMP, nullable=True)  # 可选的结束时间
+
+    # 外键关系
+    course = db.relationship("Course", foreign_keys=[course_id], backref="topics")  # 关联到 Course 表
+    user = db.relationship("User", foreign_keys=[user_id], backref="topics")  # 关联到 User 表
+
     def __repr__(self):
-        return f"<Topic(id={self.id}, tag='{self.tag}')>"
+        return f"<Topic(id={self.id}, tag='{self.tag}', course_id={self.course_id}, user_id={self.user_id})>"
 
 
 class TopicComment(db.Model):
     __tablename__ = 'topic_comment'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False)
-    user = db.Column(db.String(100), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 修改为 user_id
+
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
+    # 外键关系
+    topic = db.relationship("Topic", foreign_keys=[topic_id], backref="comments")
+    user = db.relationship("User", foreign_keys=[user_id], backref="comments")
+
     def __repr__(self):
-        return f"<Comment(id={self.id}, user='{self.user}')>"
+        return f"<Comment(id={self.id}, user_id={self.user_id})>"
 
 
 class Session(db.Model):
