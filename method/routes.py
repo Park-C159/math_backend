@@ -587,7 +587,6 @@ def delete_comment():
             if not comment:
                 return jsonify({'status': 'error', 'message': '讨论不存在'}), 404
 
-            # 删除讨论
             db.session.delete(comment)
             db.session.commit()
 
@@ -596,14 +595,11 @@ def delete_comment():
             if not comment:
                 return jsonify({'status': 'error', 'message': '回复不存在'}), 404
 
-            # 获取关联的父级讨论
             parent = Discussion.query.get(comment.parent_id)
 
-            # 删除回复
             db.session.delete(comment)
             db.session.commit()
 
-            # 更新父级讨论的 teacher_involved 参数
             if parent:
                 teacher_involved_replies = Reply.query.filter_by(parent_id=parent.id).join(User).filter(
                     User.role == 'teacher').count()
@@ -1805,6 +1801,7 @@ def save_messages():
             return create_response(500, "数据库异常")
 
 
+# 获取话题内容
 @main.route('/api/tags', methods=['GET'])
 def get_tags():
     """获取所有话题标签列表"""
@@ -1834,41 +1831,7 @@ def get_tags():
     return jsonify(tags)
 
 
-@main.route('/api/topics/<int:topic_id>', methods=['GET'])
-def get_topic_content(topic_id):
-    """获取指定话题的详细内容及其所有评论"""
-    topic = Topic.query.get(topic_id)
-
-    if not topic:
-        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
-
-    # 获取该话题的所有评论
-    comments = TopicComment.query.filter_by(topic_id=topic_id).all()
-
-    # 格式化评论数据
-    formatted_comments = [{
-        'id': comment.id,
-        'userName': comment.user.username,
-        'userRole': comment.user.role,
-        'content': comment.content,
-        'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
-    } for comment in comments]
-
-    # 构造返回的数据，包含所有话题数据
-    topic_content = {
-        'id': topic.id,
-        'description': topic.content if topic.content else '',
-        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
-        'userName': topic.user.username,
-        'userRole': topic.user.role,
-        'startTime': topic.start_time.strftime('%Y-%m-%d %H:%M') if topic.start_time else None,
-        'endTime': topic.end_time.strftime('%Y-%m-%d %H:%M') if topic.end_time else None,
-        'comments': formatted_comments
-    }
-
-    return jsonify(topic_content)
-
-
+# 向话题提交评论
 @main.route('/api/submit_topic_discussion', methods=['POST'])
 def submit_topic_discussion():
     data = request.get_json()
@@ -1909,3 +1872,39 @@ def submit_topic_discussion():
         # 发生错误时回滚
         db.session.rollback()
         return jsonify({"message": f"评论提交失败: {str(e)}"}), 500
+
+
+# 获取话题隶属的评论
+@main.route('/api/topics/<int:topic_id>', methods=['GET'])
+def get_topic_content(topic_id):
+    """获取指定话题的详细内容及其所有评论"""
+    topic = Topic.query.get(topic_id)
+
+    if not topic:
+        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
+
+    # 获取该话题的所有评论
+    comments = TopicComment.query.filter_by(topic_id=topic_id).order_by(TopicComment.created_at.desc()).all()
+
+    # 格式化评论数据
+    formatted_comments = [{
+        'id': comment.id,
+        'userName': comment.user.username,
+        'userRole': comment.user.role,
+        'content': comment.content,
+        'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
+    } for comment in comments]
+
+    # 构造返回的数据，包含所有话题数据
+    topic_content = {
+        'id': topic.id,
+        'description': topic.content if topic.content else '',
+        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
+        'userName': topic.user.username,
+        'userRole': topic.user.role,
+        'startTime': topic.start_time.strftime('%Y-%m-%d %H:%M') if topic.start_time else None,
+        'endTime': topic.end_time.strftime('%Y-%m-%d %H:%M') if topic.end_time else None,
+        'comments': formatted_comments
+    }
+
+    return jsonify(topic_content)
