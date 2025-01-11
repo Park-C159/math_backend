@@ -239,13 +239,15 @@ def get_questions():
 
 @main.route('/api/get_main_discussions', methods=['GET'])
 def get_main_discussions():
-    course_name = request.args.get('course_name')
+    course_name = request.args.get('course_name', None)
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 5, type=int)
-    search = request.args.get('search')
-    time_filter = request.args.get('time_filter')
-    author_filter = request.args.get('author_filter', type=str)
-    user_id = request.args.get('user_id')
+    search = request.args.get('search', None)
+    time_filter = request.args.get('time_filter', None)
+    author_filter = request.args.get('author_filter', None, type=str)
+    user_id = request.args.get('user_id', None)
+    topic_id = request.args.get('topic_id', None)
+    type = request.args.get('type')
 
     if not course_name:
         return jsonify({'error': 'No course name provided'}), 400
@@ -254,7 +256,18 @@ def get_main_discussions():
     if not course:
         return jsonify({'error': 'Course not found'}), 404
 
-    query = Discussion.query.filter_by(course_id=course.id)
+    if type == 'course':
+        query = Discussion.query.filter(
+            Discussion.course_id == course.id,
+            Discussion.topic_id.is_(None)
+        )
+    elif type == 'topic':
+        query = Discussion.query.filter(
+            Discussion.topic_id == topic_id,
+            Discussion.course_id.is_(None)
+        )
+    else:
+        return jsonify({'error': 'Invalid type parameter'}), 400
 
     if search:
         query = query.filter(Discussion.content.like(f'%{search}%'))
@@ -279,7 +292,6 @@ def get_main_discussions():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     discussions = pagination.items
 
-    # 获取用户的点赞记录
     user_likes = User_Like_Comment.query.filter_by(user_id=user_id).all() if user_id else []
     liked_discussions = {like.comment_id for like in user_likes if like.dor == 'discussion'}
 
@@ -287,9 +299,8 @@ def get_main_discussions():
     for discussion in discussions:
         replies_count = Reply.query.filter_by(parent_id=discussion.id).count()
 
-        discussions_data.append({
+        discussion_data = {
             'id': discussion.id,
-            'course_name': course.name,
             'author_name': discussion.author.username if discussion.author else None,
             'author_role': discussion.author.role if discussion.author else None,
             'content': discussion.content,
@@ -297,7 +308,15 @@ def get_main_discussions():
             'isLiked': discussion.id in liked_discussions,
             'created_at': discussion.created_at,
             'replies_count': replies_count
-        })
+        }
+
+        # 根据type添加相应的名称
+        if type == 'course':
+            discussion_data['course_name'] = course.name
+        elif type == 'topic':
+            discussion_data['topic_name'] = discussion.topic.tag if discussion.topic else None
+
+        discussions_data.append(discussion_data)
 
     response_data = {
         'discussions': discussions_data,
@@ -372,11 +391,19 @@ def submit_discussion():
     user_id = data.get('user_id')
     course_name = data.get('course_name')
     content = data.get('content')
+    topic_id = data.get('topic_id')
+    type = data.get('type')  # 新增type参数
 
-    if not user_id or not course_name or not content:
+    if not user_id or not course_name or not content or not type:
         return jsonify({"message": "缺少必要的参数"}), 400
 
-    # 首先查找用户并检查其角色
+    if type not in ['course', 'topic']:
+        return jsonify({"message": "无效的讨论类型"}), 400
+
+    if type == 'topic' and not topic_id:
+        return jsonify({"message": "话题讨论需要提供topic_id"}), 400
+
+    # 查找用户并检查其角色
     user = User.query.get(user_id)
     if not user:
         return jsonify({"message": "无效的用户"}), 404
@@ -385,30 +412,58 @@ def submit_discussion():
     if not course:
         return jsonify({"message": "无效的课程"}), 404
 
+    # 如果是话题讨论，验证话题是否存在且属于该课程
+    if type == 'topic':
+        topic = Topic.query.get(topic_id)
+        if not topic:
+            return jsonify({"message": "无效的话题"}), 404
+        if topic.course_id != course.id:
+            return jsonify({"message": "该话题不属于当前课程"}), 400
+
     # 根据用户角色设置 teacher_involved
     teacher_involved = user.role == 'teacher'
 
+    # 根据type设置discussion的属性
     new_discussion = Discussion(
         author_id=user_id,
-        course_id=course.id,
         content=content,
         teacher_involved=teacher_involved
     )
 
+    if type == 'course':
+        new_discussion.course_id = course.id
+        new_discussion.topic_id = None
+    else:
+        new_discussion.course_id = None
+        new_discussion.topic_id = topic_id
+
     try:
         db.session.add(new_discussion)
         db.session.commit()
-        return jsonify({
+
+        # 构建返回数据
+        response_data = {
             "message": "讨论创建成功",
             "discussion": {
                 **new_discussion.as_dict(),
-                "author_role": user.role
+                "author_role": user.role,
+                "author_name": user.username
             }
-        }), 201
+        }
+
+        # 如果是话题讨论，添加话题信息
+        if type == 'topic' and topic:
+            response_data["discussion"].update({
+                "topic_id": topic.id,
+                "topic_tag": topic.tag,
+                "topic_content": topic.content
+            })
+
+        return jsonify(response_data), 201
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "创建讨论失败", "error": str(e)}), 500
-
 
 @main.route('/api/update_like', methods=['POST'])
 def update_like():
@@ -1785,89 +1840,14 @@ def get_tags():
 
     tags = [{
         'id': topic.id,
-        'name': topic.tag,
+        'tag': topic.tag,
+        'content': topic.content,
+        'pdf_url': topic.pdf_url,
         'start_time': topic.start_time,
         'end_time': topic.end_time
     } for topic in topics]
 
     return jsonify(tags)
-
-
-@main.route('/api/topics/<int:topic_id>', methods=['GET'])
-def get_topic_content(topic_id):
-    """获取指定话题的详细内容及其所有评论"""
-    topic = Topic.query.get(topic_id)
-
-    if not topic:
-        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
-
-    # 获取该话题的所有评论
-    comments = TopicComment.query.filter_by(topic_id=topic_id).order_by(TopicComment.created_at.desc()).all()
-
-    # 格式化评论数据
-    formatted_comments = [{
-        'id': comment.id,
-        'userName': comment.user.username,
-        'userRole': comment.user.role,
-        'content': comment.content,
-        'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
-    } for comment in comments]
-
-    # 构造返回的数据，包含所有话题数据
-    topic_content = {
-        'id': topic.id,
-        'description': topic.content if topic.content else '',
-        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
-        'userName': topic.user.username,
-        'userRole': topic.user.role,
-        'startTime': topic.start_time.strftime('%Y-%m-%d %H:%M') if topic.start_time else None,
-        'endTime': topic.end_time.strftime('%Y-%m-%d %H:%M') if topic.end_time else None,
-        'comments': formatted_comments
-    }
-
-    return jsonify(topic_content)
-
-
-@main.route('/api/submit_topic_discussion', methods=['POST'])
-def submit_topic_discussion():
-    data = request.get_json()
-    user_id = data.get('user_id')
-    topic_id = data.get('topic_id')
-    content = data.get('content')
-
-    # 参数验证
-    if not user_id or not topic_id or not content:
-        return jsonify({"message": "缺少必要的参数"}), 400
-
-    # 查找用户
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"message": "无效的用户"}), 404
-
-    # 查找话题
-    topic = Topic.query.get(topic_id)
-    if not topic:
-        return jsonify({"message": "话题不存在"}), 404
-
-    try:
-        # 创建新的评论
-        new_comment = TopicComment(
-            topic_id=topic_id,
-            user_id=user_id,
-            content=content
-        )
-
-        # 添加到数据库
-        db.session.add(new_comment)
-        db.session.commit()
-
-        # 返回简化的评论数据，避免循环引用
-        return jsonify({"message": "评论提交成功", }), 201
-
-    except Exception as e:
-        # 发生错误时回滚
-        db.session.rollback()
-        return jsonify({"message": f"评论提交失败: {str(e)}"}), 500
 
 
 @main.route("/api/save_messages", methods=['PUT'])
