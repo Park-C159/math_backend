@@ -311,7 +311,8 @@ class Discussion(db.Model):
     __tablename__ = 'discussions'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False, index=True)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), index=True)  # Changed to nullable
+    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'))  # Added topic_id
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
 
     like = db.Column(db.Integer, default=0)
@@ -322,6 +323,7 @@ class Discussion(db.Model):
 
     # Relationships
     course = db.relationship('Course', backref='discussions')
+    topic = db.relationship('Topic', backref='discussions')  # Added topic relationship
     author = db.relationship('User', backref='discussions')
     replies = db.relationship('Reply',
                               primaryjoin='Reply.parent_id==Discussion.id',
@@ -331,9 +333,11 @@ class Discussion(db.Model):
         return {
             'id': self.id,
             'course_id': self.course_id,
+            'topic_id': self.topic_id,  # Added topic_id
             'author_id': self.author_id,
             'author_name': self.author.username if self.author else None,
             'course_name': self.course.name if self.course else None,
+            'topic_name': self.topic.tag if self.topic else None,
             'like': self.like,
             'content': self.content,
             'teacher_involved': self.teacher_involved,
@@ -474,24 +478,6 @@ class Topic(db.Model):
 
     def __repr__(self):
         return f"<Topic(id={self.id}, tag='{self.tag}', course_id={self.course_id}, user_id={self.user_id})>"
-
-
-class TopicComment(db.Model):
-    __tablename__ = 'topic_comment'
-
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 修改为 user_id
-
-    content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
-
-    # 外键关系
-    topic = db.relationship("Topic", foreign_keys=[topic_id], backref="comments")
-    user = db.relationship("User", foreign_keys=[user_id], backref="comments")
-
-    def __repr__(self):
-        return f"<Comment(id={self.id}, user_id={self.user_id})>"
 
 
 class Session(db.Model):
