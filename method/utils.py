@@ -79,31 +79,6 @@ def generate_truth_table_for_equivalence(expr_str1, expr_str2):
     return are_equivalent, df
 
 
-# # 测试示例
-# expr_str1 = "p | q"
-# expr_str2 = "~(~p & ~q)"
-#
-# # 生成真值表并判断等值性
-# is_equivalent, truth_table = generate_truth_table_for_equivalence(expr_str1, expr_str2)
-#
-# print(f"表达式 '{expr_str1}' 和 '{expr_str2}' 是否等值: {is_equivalent}")
-# print(truth_table)
-
-# 测试示例
-# expr_str1 = "p | ~p"  # 重言式
-# expr_str2 = "p & q"  # 非重言式
-#
-# # 生成真值表并判断是否为重言式
-# is_tautology1, truth_table1 = generate_truth_table(expr_str1)
-# is_tautology2, truth_table2 = generate_truth_table(expr_str2)
-#
-# print(f"表达式: {expr_str1} 是重言式: {is_tautology1}")
-# print(truth_table1)
-# print("\n")
-# print(f"表达式: {expr_str2} 是重言式: {is_tautology2}")
-# print(truth_table2)
-
-
 def convert_to_python_operators(expr_str):
     # 创建一个替换映射
     replacements = {
@@ -445,3 +420,5 @@ def create_response(code, msg, data=None):
         'msg': msg
     }
     return jsonify(response)
+
+

@@ -3,7 +3,9 @@ import json
 import random
 from datetime import datetime, timedelta
 
-import os
+import statistics
+import numpy as np
+from scipy.stats import skew, kurtosis
 from flask import Blueprint, jsonify, request, send_file, send_from_directory
 from flask_socketio import emit
 from sqlalchemy import and_
@@ -1588,6 +1590,8 @@ def get_user_list():
         return create_response(200, "请求成功！", data)
 
 
+
+
 @main.route("/api/download_users_mark", methods=['GET'])
 def download_user_marks():
     exam_id = request.args.get("exam_id")
@@ -1599,26 +1603,56 @@ def download_user_marks():
     if not exam:
         return create_response(404, "未找到该考试")
 
-    # 按用户查询所有用户的答案
     user_scores_map = {}
+    question_stats_map = {}
 
-    # 遍历该考试的所有题目
     for exam_question in exam.questions:
         question = exam_question.question
-
-        # 获取该题目的所有用户作答记录
         user_answers = UserAnswer.query.filter_by(question_id=question.id).all()
-        if not user_answers:
-            continue  # 如果没有用户作答，可以跳过该题目
 
-        # 遍历所有作答该题目的用户
+        if not user_answers:
+            continue
+
+        scores = [ua.score for ua in user_answers]
+
+        # 计算统计指标
+        avg_score = statistics.mean(scores)
+        median_score = statistics.median(scores)
+        try:
+            mode_score = statistics.mode(scores)
+        except statistics.StatisticsError:
+            mode_score = "无众数"
+        stdev_score = statistics.stdev(scores) if len(scores) > 1 else 0
+        variance_score = statistics.variance(scores) if len(scores) > 1 else 0
+        range_score = max(scores) - min(scores)
+        q1, q3 = np.percentile(scores, [25, 75])
+        iqr_score = q3 - q1
+        cv_score = (stdev_score / avg_score) * 100 if avg_score != 0 else 0
+        skewness_score = skew(scores)
+        kurtosis_score = kurtosis(scores)
+
+        question_stats_map[question.id] = {
+            "question_id": question.id,
+            "question_text": question.question_text,
+            "average_score": avg_score,
+            "median_score": median_score,
+            "mode_score": mode_score,
+            "standard_deviation": stdev_score,
+            "variance": variance_score,
+            "range": range_score,
+            "q1": q1,
+            "q3": q3,
+            "iqr": iqr_score,
+            "coefficient_of_variation": cv_score,
+            "skewness": skewness_score,
+            "kurtosis": kurtosis_score
+        }
+
         for user_answer in user_answers:
             user_id = user_answer.user.user_id
             user_name = user_answer.user.username
-            question_text = user_answer.question.question_text
             user_score = user_answer.score
 
-            # 如果该用户还没有记录，初始化一个
             if user_id not in user_scores_map:
                 user_scores_map[user_id] = {
                     'user_id': user_id,
@@ -1627,20 +1661,58 @@ def download_user_marks():
                     'total_score': 0,
                 }
 
-            # 添加该题目得分
             user_scores_map[user_id]['question_score'].append({
                 'question_id': question.id,
-                'question_text': question_text,
+                'question_text': question.question_text,
                 'user_score': user_score
             })
 
-            # 累加总分
             user_scores_map[user_id]['total_score'] += user_score
 
-    # 将所有用户的成绩数据返回
-    result = list(user_scores_map.values())
+    # 计算总分统计信息
+    total_scores = [user["total_score"] for user in user_scores_map.values()]
+    if total_scores:
+        total_avg = statistics.mean(total_scores)
+        total_median = statistics.median(total_scores)
+        try:
+            total_mode = statistics.mode(total_scores)
+        except statistics.StatisticsError:
+            total_mode = "无众数"
+        total_stdev = statistics.stdev(total_scores) if len(total_scores) > 1 else 0
+        total_variance = statistics.variance(total_scores) if len(total_scores) > 1 else 0
+        total_range = max(total_scores) - min(total_scores)
+        q1_total, q3_total = np.percentile(total_scores, [25, 75])
+        iqr_total = q3_total - q1_total
+        cv_total = (total_stdev / total_avg) * 100 if total_avg != 0 else 0
+        total_skew = skew(total_scores)
+        total_kurtosis = kurtosis(total_scores)
+    else:
+        total_avg = total_median = total_mode = total_stdev = total_variance = total_range = None
+        q1_total = q3_total = iqr_total = cv_total = total_skew = total_kurtosis = None
+
+    total_stats = {
+        "average_total_score": total_avg,
+        "median_total_score": total_median,
+        "mode_total_score": total_mode,
+        "standard_deviation_total_score": total_stdev,
+        "variance_total_score": total_variance,
+        "range_total_score": total_range,
+        "q1_total_score": q1_total,
+        "q3_total_score": q3_total,
+        "iqr_total_score": iqr_total,
+        "coefficient_of_variation": cv_total,
+        "skewness_total_score": total_skew,
+        "kurtosis_total_score": total_kurtosis
+    }
+
+    result = {
+        "user_scores": list(user_scores_map.values()),
+        "question_statistics": list(question_stats_map.values()),
+        "total_statistics": total_stats
+    }
 
     return create_response(200, "ok", result)
+
 
 
 @main.route("/api/users", methods=['GET', 'DELETE', 'PUT'])

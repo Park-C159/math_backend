@@ -20,7 +20,7 @@ def create_app():
     from .routes import main
     app.register_blueprint(main)
 
-    socketio.init_app(app)
-    socketio.on_namespace(ChatNamespace('/chat_ai'))
+    # socketio.init_app(app)
+    # socketio.on_namespace(ChatNamespace('/chat_ai'))
 
     return app
