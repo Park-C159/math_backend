@@ -1549,6 +1549,7 @@ def download_user_marks():
             user_id = user_answer.user.user_id
             user_name = user_answer.user.username
             user_score = user_answer.score
+            user_answer_value = user_answer.user_answer
 
             if user_id not in user_scores_map:
                 user_scores_map[user_id] = {
@@ -1561,7 +1562,9 @@ def download_user_marks():
             user_scores_map[user_id]['question_score'].append({
                 'question_id': question.id,
                 'question_text': question.question_text,
-                'user_score': user_score
+                'user_score': user_score,
+                'question_type': question.type,
+                'user_answer_value': user_answer_value
             })
 
             user_scores_map[user_id]['total_score'] += user_score
@@ -1871,5 +1874,21 @@ def save_messages():
             # 可以打印异常到日志以便调试
             print(f"数据库异常: {str(e)}")
             return create_response(500, "数据库异常")
+
+@main.route("/api/get_exam_id", methods=['GET'])
+def get_exam_id():
+    if request.method == "GET":
+        course_id = request.args.get("course_id")
+
+        if not course_id:
+            return create_response(404, "Course_id is not found!")
+
+        exam = Exams.query.filter_by(course_id=course_id).order_by(Exams.id.desc()).first()
+
+        if not exam:
+            return create_response(404, "No exam found for this course_id!")
+
+        return create_response(200, "ok", {"exam_id": exam.id})
+
 
 

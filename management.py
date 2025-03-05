@@ -1,3 +1,5 @@
+import json
+
 import pymysql
 import pandas as pd
 
@@ -127,6 +129,9 @@ def insertUserToMySQL(conn, df, question_ids):
             is_correct = True
             user_score = u[answer_idx]
             user_answer = u[answer_idx + 1]
+            if pd.isna(user_answer):
+                user_answer = ""
+
             if user_score == 0:
                 is_correct = False
             cursor.execute(sql_user_answer, (user_id, question_ids[i], user_answer, is_correct, user_score))
@@ -226,14 +231,14 @@ def insertQuestionToMySQL(conn, exam_id, questions=None):
             {
                 "type": "choice",
                 "question_text": "已知向量 $\\boldsymbol{\\vec{a}}, \\boldsymbol{\\vec{b}}$ 满足 $|\\bm{a}| = 5$, $|\\bm{b}| = 12$, $|\\bm{a} + \\bm{b}| = 13$，则 "
-                                 "$|\\bm{a} - \\bm{b}| = __________。",
+                                 "$|\\bm{a} - \\bm{b}|$ = __________。",
                 "score": 3,
                 "correct_answer": "C",
                 "options": [
-                    ('A', "5"),
-                    ('B', "12"),
-                    ('C', "13"),
-                    ('D', "17"),
+                    {"option": "A", "value": "5"},
+                    {"option": "B", "value": "12"},
+                    {"option": "C", "value": "13"},
+                    {"option": "D", "value": "17"}
                 ]
             },
             {
@@ -242,10 +247,10 @@ def insertQuestionToMySQL(conn, exam_id, questions=None):
                 "score": 3,
                 "correct_answer": "C",
                 "options": [
-                    ('A', 'λ + μ = 1'),
-                    ("B", "λ + μ = 0"),
-                    ("C", "λ = μ = 0"),
-                    ("D", "λ = 0 或 μ = 0")
+                    {"option": "A", "value": "$\\lambda + \\mu = 1$"},
+                    {"option": "B", "value": "$\\lambda + \\mu = 0$"},
+                    {"option": "C", "value": "$\\lambda = \\mu = 0$"},
+                    {"option": "D", "value": "$\\lambda = 0$ 或 $\\mu = 0$"}
                 ]
             }
         ]
@@ -262,8 +267,10 @@ def insertQuestionToMySQL(conn, exam_id, questions=None):
         # 插入选项
         if "options" in q and q["options"]:
             sql_option = "INSERT INTO question_option (question_id, option_label, option_text) VALUES (%s, %s, %s)"
-            option_data = [(question_id, opt[0], opt[1]) for opt in q["options"]]
+            option_data = [(question_id, opt['option'], opt['value']) for opt in q["options"]]
             cursor.executemany(sql_option, option_data)
+
+
 
     # 关联 exams_question 表
     sql_exam_question = "INSERT INTO exams_question (exam_id, question_id) VALUES (%s, %s)"
@@ -282,7 +289,14 @@ if __name__ == '__main__':
     filepath = "static/单科试卷得分明细表(2023期中).xlsx"  # Excel 文件路径
     df = readExcel(filepath)  # 读取 Excel 数据
     exam_id = insertExamToMySQL(conn, "2023年期中考试")
-    question_ids = insertQuestionToMySQL(conn, exam_id)
+
+    question_path = "static/2023期中.json"
+
+    with open(question_path, "r", encoding="utf-8") as f:
+        questions = json.load(f)
+
+
+    question_ids = insertQuestionToMySQL(conn, exam_id, questions)
     insertUserToMySQL(conn, df, question_ids)  # 插入 MySQL
 
     conn.close()  # 关闭 MySQL 连接
