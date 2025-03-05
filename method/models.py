@@ -311,7 +311,8 @@ class Discussion(db.Model):
     __tablename__ = 'discussions'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False, index=True)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), index=True)  # Changed to nullable
+    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'))  # Added topic_id
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
 
     like = db.Column(db.Integer, default=0)
@@ -322,6 +323,7 @@ class Discussion(db.Model):
 
     # Relationships
     course = db.relationship('Course', backref='discussions')
+    topic = db.relationship('Topic', backref='discussions')  # Added topic relationship
     author = db.relationship('User', backref='discussions')
     replies = db.relationship('Reply',
                               primaryjoin='Reply.parent_id==Discussion.id',
@@ -331,9 +333,11 @@ class Discussion(db.Model):
         return {
             'id': self.id,
             'course_id': self.course_id,
+            'topic_id': self.topic_id,  # Added topic_id
             'author_id': self.author_id,
             'author_name': self.author.username if self.author else None,
             'course_name': self.course.name if self.course else None,
+            'topic_name': self.topic.tag if self.topic else None,
             'like': self.like,
             'content': self.content,
             'teacher_involved': self.teacher_involved,
@@ -457,26 +461,23 @@ class Link(db.Model):
 class Topic(db.Model):
     __tablename__ = 'topics'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     tag = db.Column(db.String(255), nullable=False, index=True)
     content = db.Column(db.Text)
     pdf_url = db.Column(db.String(500))
 
-    def __repr__(self):
-        return f"<Topic(id={self.id}, tag='{self.tag}')>"
+    # 新增字段
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'))  # 关联 course 表
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # 关联 users 表
+    start_time = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp(), nullable=False)  # 默认当前时间
+    end_time = db.Column(db.TIMESTAMP, nullable=True)  # 可选的结束时间
 
-
-class TopicComment(db.Model):
-    __tablename__ = 'topic_comment'
-
-    id = db.Column(db.Integer, primary_key=True)
-    topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False)
-    user = db.Column(db.String(100), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+    # 外键关系
+    course = db.relationship("Course", foreign_keys=[course_id], backref="topics")  # 关联到 Course 表
+    user = db.relationship("User", foreign_keys=[user_id], backref="topics")  # 关联到 User 表
 
     def __repr__(self):
-        return f"<Comment(id={self.id}, user='{self.user}')>"
+        return f"<Topic(id={self.id}, tag='{self.tag}', course_id={self.course_id}, user_id={self.user_id})>"
 
 
 class Session(db.Model):

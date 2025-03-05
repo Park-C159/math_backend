@@ -241,13 +241,15 @@ def get_questions():
 
 @main.route('/api/get_main_discussions', methods=['GET'])
 def get_main_discussions():
-    course_name = request.args.get('course_name')
+    course_name = request.args.get('course_name', None)
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 5, type=int)
-    search = request.args.get('search')
-    time_filter = request.args.get('time_filter')
-    author_filter = request.args.get('author_filter', type=str)
-    user_id = request.args.get('user_id')
+    search = request.args.get('search', None)
+    time_filter = request.args.get('time_filter', None)
+    author_filter = request.args.get('author_filter', None, type=str)
+    user_id = request.args.get('user_id', None)
+    topic_id = request.args.get('topic_id', None)
+    type = request.args.get('type')
 
     if not course_name:
         return jsonify({'error': 'No course name provided'}), 400
@@ -256,7 +258,18 @@ def get_main_discussions():
     if not course:
         return jsonify({'error': 'Course not found'}), 404
 
-    query = Discussion.query.filter_by(course_id=course.id)
+    if type == 'course':
+        query = Discussion.query.filter(
+            Discussion.course_id == course.id,
+            Discussion.topic_id.is_(None)
+        )
+    elif type == 'topic':
+        query = Discussion.query.filter(
+            Discussion.topic_id == topic_id,
+            Discussion.course_id.is_(None)
+        )
+    else:
+        return jsonify({'error': 'Invalid type parameter'}), 400
 
     if search:
         query = query.filter(Discussion.content.like(f'%{search}%'))
@@ -281,7 +294,6 @@ def get_main_discussions():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     discussions = pagination.items
 
-    # 获取用户的点赞记录
     user_likes = User_Like_Comment.query.filter_by(user_id=user_id).all() if user_id else []
     liked_discussions = {like.comment_id for like in user_likes if like.dor == 'discussion'}
 
@@ -289,9 +301,8 @@ def get_main_discussions():
     for discussion in discussions:
         replies_count = Reply.query.filter_by(parent_id=discussion.id).count()
 
-        discussions_data.append({
+        discussion_data = {
             'id': discussion.id,
-            'course_name': course.name,
             'author_name': discussion.author.username if discussion.author else None,
             'author_role': discussion.author.role if discussion.author else None,
             'content': discussion.content,
@@ -299,7 +310,15 @@ def get_main_discussions():
             'isLiked': discussion.id in liked_discussions,
             'created_at': discussion.created_at,
             'replies_count': replies_count
-        })
+        }
+
+        # 根据type添加相应的名称
+        if type == 'course':
+            discussion_data['course_name'] = course.name
+        elif type == 'topic':
+            discussion_data['topic_name'] = discussion.topic.tag if discussion.topic else None
+
+        discussions_data.append(discussion_data)
 
     response_data = {
         'discussions': discussions_data,
@@ -374,11 +393,19 @@ def submit_discussion():
     user_id = data.get('user_id')
     course_name = data.get('course_name')
     content = data.get('content')
+    topic_id = data.get('topic_id')
+    type = data.get('type')  # 新增type参数
 
-    if not user_id or not course_name or not content:
+    if not user_id or not course_name or not content or not type:
         return jsonify({"message": "缺少必要的参数"}), 400
 
-    # 首先查找用户并检查其角色
+    if type not in ['course', 'topic']:
+        return jsonify({"message": "无效的讨论类型"}), 400
+
+    if type == 'topic' and not topic_id:
+        return jsonify({"message": "话题讨论需要提供topic_id"}), 400
+
+    # 查找用户并检查其角色
     user = User.query.get(user_id)
     if not user:
         return jsonify({"message": "无效的用户"}), 404
@@ -387,30 +414,58 @@ def submit_discussion():
     if not course:
         return jsonify({"message": "无效的课程"}), 404
 
+    # 如果是话题讨论，验证话题是否存在且属于该课程
+    if type == 'topic':
+        topic = Topic.query.get(topic_id)
+        if not topic:
+            return jsonify({"message": "无效的话题"}), 404
+        if topic.course_id != course.id:
+            return jsonify({"message": "该话题不属于当前课程"}), 400
+
     # 根据用户角色设置 teacher_involved
     teacher_involved = user.role == 'teacher'
 
+    # 根据type设置discussion的属性
     new_discussion = Discussion(
         author_id=user_id,
-        course_id=course.id,
         content=content,
         teacher_involved=teacher_involved
     )
 
+    if type == 'course':
+        new_discussion.course_id = course.id
+        new_discussion.topic_id = None
+    else:
+        new_discussion.course_id = None
+        new_discussion.topic_id = topic_id
+
     try:
         db.session.add(new_discussion)
         db.session.commit()
-        return jsonify({
+
+        # 构建返回数据
+        response_data = {
             "message": "讨论创建成功",
             "discussion": {
                 **new_discussion.as_dict(),
-                "author_role": user.role
+                "author_role": user.role,
+                "author_name": user.username
             }
-        }), 201
+        }
+
+        # 如果是话题讨论，添加话题信息
+        if type == 'topic' and topic:
+            response_data["discussion"].update({
+                "topic_id": topic.id,
+                "topic_tag": topic.tag,
+                "topic_content": topic.content
+            })
+
+        return jsonify(response_data), 201
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "创建讨论失败", "error": str(e)}), 500
-
 
 @main.route('/api/update_like', methods=['POST'])
 def update_like():
@@ -572,6 +627,54 @@ def submit_reply():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@main.route('/api/comments/delete', methods=['POST'])
+def delete_comment():
+    try:
+        data = request.get_json()
+        comment_type = data.get('comment_type')
+        comment_id = data.get('comment_id')
+
+        if not comment_type or not comment_id:
+            return jsonify({'status': 'error', 'message': '缺少必要参数'}), 400
+
+        if comment_type == 'discussion':
+            comment = Discussion.query.get(comment_id)
+            if not comment:
+                return jsonify({'status': 'error', 'message': '讨论不存在'}), 404
+
+            # 删除讨论
+            db.session.delete(comment)
+            db.session.commit()
+
+        elif comment_type == 'reply':
+            comment = Reply.query.get(comment_id)
+            if not comment:
+                return jsonify({'status': 'error', 'message': '回复不存在'}), 404
+
+            # 获取关联的父级讨论
+            parent = Discussion.query.get(comment.parent_id)
+
+            # 删除回复
+            db.session.delete(comment)
+            db.session.commit()
+
+            # 更新父级讨论的 teacher_involved 参数
+            if parent:
+                teacher_involved_replies = Reply.query.filter_by(parent_id=parent.id).join(User).filter(
+                    User.role == 'teacher').count()
+                if teacher_involved_replies == 0:
+                    parent.teacher_involved = False
+                    db.session.commit()
+
+        else:
+            return jsonify({'status': 'error', 'message': '未知的 comment_type'}), 400
+
+        return jsonify({'status': 'success', 'message': '评论已成功删除'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': f'发生错误: {str(e)}'}), 500
 
 
 @main.route('/api/is_tautology', methods=['GET'])
@@ -1549,7 +1652,6 @@ def download_user_marks():
             user_id = user_answer.user.user_id
             user_name = user_answer.user.username
             user_score = user_answer.score
-            user_answer_value = user_answer.user_answer
 
             if user_id not in user_scores_map:
                 user_scores_map[user_id] = {
@@ -1562,9 +1664,7 @@ def download_user_marks():
             user_scores_map[user_id]['question_score'].append({
                 'question_id': question.id,
                 'question_text': question.question_text,
-                'user_score': user_score,
-                'question_type': question.type,
-                'user_answer_value': user_answer_value
+                'user_score': user_score
             })
 
             user_scores_map[user_id]['total_score'] += user_score
@@ -1794,8 +1894,31 @@ def knowledge_graph():
 @main.route('/api/tags', methods=['GET'])
 def get_tags():
     """获取所有话题标签列表"""
-    topics = Topic.query.all()
-    tags = [{'id': topic.id, 'name': topic.tag} for topic in topics]
+    course_name = request.args.get('course_name', type=str)
+    if not course_name:
+        return jsonify({"error": "Course name is required"}), 400
+
+    course = Course.query.filter_by(name=course_name).first()
+    if not course:
+        return jsonify({"error": f"Course with name '{course_name}' not found"}), 404
+
+    course_id = course.id
+    if not course_id:
+        return jsonify({"error": "Course ID is required"}), 400
+
+    topics = Topic.query.filter_by(course_id=course_id).all()
+    if not topics:
+        return jsonify({"error": f"No topics found for course ID {course_id}"}), 404
+
+    tags = [{
+        'id': topic.id,
+        'tag': topic.tag,
+        'content': topic.content,
+        'pdf_url': topic.pdf_url,
+        'start_time': topic.start_time,
+        'end_time': topic.end_time
+    } for topic in topics]
+
     return jsonify(tags)
 
 
