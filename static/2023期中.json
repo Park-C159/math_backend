@@ -1,0 +1,158 @@
+[
+    {
+        "type": "choice",
+        "question_text": "已知向量 $\\vec{a}, \\vec{b}$ 满足 $|\\vec{a}| = 5$, $|\\vec{b}| = 12$, $|\\vec{a} + \\vec{b}| = 13$，则 $|\\vec{a} - \\vec{b}| =$",
+        "score": 3,
+        "correct_answer": "C",
+        "options": [
+            {"option": "A", "value": "5"},
+            {"option": "B", "value": "12"},
+            {"option": "C", "value": "13"},
+            {"option": "D", "value": "17"}
+        ]
+    },
+    {
+        "type": "choice",
+        "question_text": "假设向量 $\\vec{a}, \\vec{b}$ 不共线，若 $\\lambda\\vec{a} + \\mu\\vec{b} = \\vec{0}$，则 $\\lambda, \\mu$。",
+        "score": 3,
+        "correct_answer": "C",
+        "options": [
+            {"option": "A", "value": "$\\lambda + \\mu = 1$"},
+            {"option": "B", "value": "$\\lambda + \\mu = 0$"},
+            {"option": "C", "value": "$\\lambda = \\mu = 0$"},
+            {"option": "D", "value": "$\\lambda = 0$ 或 $\\mu = 0$"}
+        ]
+    },
+    {
+        "type": "choice",
+        "question_text": "曲面 $z^2 + xy - yz - 5x = 0$ 与直线 $\\frac{x}{-1} = \\frac{y-5}{3} = \\frac{z-10}{7}$ 的交点是。",
+        "score": 3,
+        "correct_answer": "B",
+        "options": [
+            {"option": "A", "value": "$(1, 2, 3), (2, -1, -4)$"},
+            {"option": "B", "value": "$(1, 2, 3)$"},
+            {"option": "C", "value": "$(2, 3, 4)$"},
+            {"option": "D", "value": "$(2, -1, -4)$"}
+        ]
+    },
+    {
+        "type": "choice",
+        "question_text": "已知 $\\vec{a} = (8, 4, 1)$, $\\vec{b} = (2, -2, 1)$，则 $\\vec{a}$ 在 $\\vec{b}$ 上的投影为。",
+        "score": 3,
+        "correct_answer": "C",
+        "options": [
+            {"option": "A", "value": "3"},
+            {"option": "B", "value": "$(2, -2, 1)$"},
+            {"option": "C", "value": "-3"},
+            {"option": "D", "value": "$(-2, 2, 1)$"}
+        ]
+    },
+    {
+        "type": "choice",
+        "question_text": "两平面 $\\pi_1: 3x + 4y + 5z + 10 = 0$ 和 $\\pi_2: 3x + 4y + 5z + 20 = 0$ 之间的距离为。",
+        "score": 3,
+        "correct_answer": "C",
+        "options": [
+            {"option": "A", "value": "$\\frac{\\sqrt{2}}{2}$"},
+            {"option": "B", "value": "$\\sqrt{2}$"},
+            {"option": "C", "value": "3"},
+            {"option": "D", "value": "$\\frac{1}{5}$"}
+        ]
+    },
+    {
+        "type": "choice",
+        "question_text": "直线 $L_1: \\frac{x-1}{1} = \\frac{y-5}{-2} = \\frac{z+6}{1}$ 和直线 $L_2: \\begin{cases} x-y-6=0 \\\\ 2y+z-3=0 \\end{cases}$ 夹角的余弦值为。",
+        "score": 3,
+        "correct_answer": "C",
+        "options": [
+            {"option": "A", "value": "0"},
+            {"option": "B", "value": "$\\frac{1}{2}$"},
+            {"option": "C", "value": "$\\frac{\\sqrt{3}}{2}$"},
+            {"option": "D", "value": "1"}
+        ]
+    },
+    {
+      "type": "choice",
+      "question_text": "设矩阵 A 为 2×3 矩阵, 则齐次线性方程组 Ax = 0 解的情况为 __________。",
+      "score": 3,
+      "correct_answer": "C",
+      "options": [
+        {"option": "A", "value":"无解"},
+        {"option": "B", "value":"有唯一零解"},
+        {"option": "C", "value":"有无穷多解"},
+        {"option": "D", "value": "A,B,C 均有可能"}
+      ]
+    },
+    {
+    "type": "choice",
+    "question_text": "将 $yoz$ 平面上的曲线 $\\frac{y^2}{b^2}+\\frac{z^2}{c^2}=1$ 绕 $z$ 轴旋转得到的旋转曲面为__________。",
+    "score": 3,
+    "correct_answer": "C",
+    "options": [
+      {"option": "A", "value" :"$\\frac{x^2-y^2}{b^2}+\\frac{z^2}{c^2}=1$"},
+      {"option": "B", "value" :"$\\frac{y^2}{b^2}+\\frac{x^2+z^2}{c^2}=1$"},
+      {"option": "C", "value" :"$\\frac{x^2+y^2}{b^2}+\\frac{z^2}{c^2}=1$"},
+      {"option": "D", "value" :"$\\frac{y^2}{b^2}+\\frac{x^2-z^2}{c^2}=1$"}
+    ]
+  },
+  {
+    "type": "choice",
+    "question_text": "已知向量$\\vec{a}=(1,5,-2), \\vec{b}=(2,1,2)$，则当__________时，向量$\\lambda \\vec{a}+ \\mu \\vec{b}$与$xoy$面平行。",
+    "score": 3,
+    "correct_answer": "A",
+    "options": [
+      {"option": "A", "value" :"$\\lambda=-\\mu$"},
+      {"option": "B", "value" :"$\\lambda=-\\frac{2}{3}\\mu$"},
+      {"option": "C", "value" :"$\\lambda=2\\mu$"},
+      {"option": "D", "value" :"$\\lambda=\\mu$"}
+    ]
+  },
+  {
+    "type": "choice",
+    "question_text": "设齐次线性方程组$Ax=0$只有零解，则非齐次线性方程组$Ax=b$__________。",
+    "score": 3,
+    "correct_answer": "B",
+    "options": [
+      {"option": "A", "value" : "必有无穷多解"},
+      {"option": "B", "value" : "必有唯一解"},
+      {"option": "C", "value" : "必定无解"},
+      {"option": "D", "value" : "A,B,C均不正确"}
+    ]
+  },
+  {
+    "type": "blank",
+    "question_text": "已知四面体的顶点为 A(2,3,1), B(4,1,–2), C(6,3,7), D(–5,–4,8), 从顶点 D 所引的高的长度\n为__________。",
+    "score": 16,
+    "correct_answer": ""
+  },
+  {
+    "type": "proof",
+    "question_text": "三",
+    "score": 6,
+    "correct_answer": ""
+  },
+  {
+    "type": "proof",
+    "question_text": "四",
+    "score": 8,
+    "correct_answer": ""
+  },
+  {
+    "type": "proof",
+    "question_text": "五",
+    "score": 12,
+    "correct_answer": ""
+  },
+  {
+    "type": "proof",
+    "question_text": "六",
+    "score": 12,
+    "correct_answer": ""
+  },
+  {
+    "type": "proof",
+    "question_text": "七",
+    "score": 12,
+    "correct_answer": ""
+  }
+]

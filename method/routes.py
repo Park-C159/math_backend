@@ -1922,6 +1922,42 @@ def get_tags():
     return jsonify(tags)
 
 
+@main.route('/api/topics/<int:topic_id>', methods=['GET'])
+def get_topic_content(topic_id):
+    """获取指定话题的详细内容"""
+    topic = Topic.query.get(topic_id)
+
+    if not topic:
+        return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
+
+    # 获取该话题的所有评论
+    comments = TopicComment.query.filter_by(topic_id=topic_id).all()
+
+    # 格式化评论数据
+    formatted_comments = []
+    for comment in comments:
+        formatted_comments.append({
+            'id': comment.id,
+            'user': comment.user,
+            'content': comment.content,
+            'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
+        })
+
+    # 构造返回的数据
+    tag_content = {
+        'description': topic.content if topic.content else '',
+        'pdfUrl': topic.pdf_url if topic.pdf_url else '',
+        'comments': formatted_comments
+    }
+
+    # 返回数据的外层结构
+    tag_contents = {
+        topic.id: tag_content
+    }
+
+    return jsonify(tag_contents)
+
+
 @main.route("/api/save_messages", methods=['PUT'])
 def save_messages():
     if request.method == "PUT":
@@ -1961,3 +1997,21 @@ def save_messages():
             # 可以打印异常到日志以便调试
             print(f"数据库异常: {str(e)}")
             return create_response(500, "数据库异常")
+
+@main.route("/api/get_exam_id", methods=['GET'])
+def get_exam_id():
+    if request.method == "GET":
+        course_id = request.args.get("course_id")
+
+        if not course_id:
+            return create_response(404, "Course_id is not found!")
+
+        exam = Exams.query.filter_by(course_id=course_id).order_by(Exams.id.desc()).first()
+
+        if not exam:
+            return create_response(404, "No exam found for this course_id!")
+
+        return create_response(200, "ok", {"exam_id": exam.id})
+
+
+
