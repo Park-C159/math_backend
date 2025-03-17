@@ -1652,6 +1652,8 @@ def download_user_marks():
             user_id = user_answer.user.user_id
             user_name = user_answer.user.username
             user_score = user_answer.score
+            answer = user_answer.user_answer
+
 
             if user_id not in user_scores_map:
                 user_scores_map[user_id] = {
@@ -1664,7 +1666,9 @@ def download_user_marks():
             user_scores_map[user_id]['question_score'].append({
                 'question_id': question.id,
                 'question_text': question.question_text,
-                'user_score': user_score
+                'user_score': user_score,
+                "question_type": question.type,
+                "user_answer_value": answer
             })
 
             user_scores_map[user_id]['total_score'] += user_score
