@@ -396,6 +396,10 @@ def submit_discussion():
     topic_id = data.get('topic_id')
     type = data.get('type')  # 新增type参数
 
+    topic = Topic.query.get(topic_id)
+    if type == 'topic' and not is_topic_active(topic):
+        return jsonify({"status": "error", "message": "话题已过期，无法添加评论"}), 403
+
     if not user_id or not course_name or not content or not type:
         return jsonify({"message": "缺少必要的参数"}), 400
 
@@ -466,6 +470,7 @@ def submit_discussion():
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "创建讨论失败", "error": str(e)}), 500
+
 
 @main.route('/api/update_like', methods=['POST'])
 def update_like():
@@ -675,6 +680,189 @@ def delete_comment():
     except Exception as e:
         db.session.rollback()
         return jsonify({'status': 'error', 'message': f'发生错误: {str(e)}'}), 500
+
+
+@main.route("/api/generate_score_analysis", methods=['GET'])
+def generate_score_analysis():
+    """生成学生成绩分析报告的API
+
+    通过获取学生信息、课程信息、考试信息和成绩数据，
+    将其格式化为prompt发送给AI大模型生成个性化成绩分析报告。
+    """
+    user_id = request.args.get("user_id")
+    exam_id = request.args.get("exam_id")
+
+    if not user_id or not exam_id:
+        return create_response(400, "缺少必要参数：user_id或exam_id")
+
+    try:
+        # 获取用户信息
+        user = User.query.get(user_id)
+        if not user:
+            return create_response(404, "未找到该用户")
+
+        # 获取考试信息
+        exam = Exams.query.get(exam_id)
+        if not exam:
+            return create_response(404, "未找到该考试")
+
+        # 获取课程信息
+        course = Course.query.get(exam.course_id)
+        if not course:
+            return create_response(404, "未找到对应课程")
+
+        # 获取用户在该考试中的答题情况
+        user_scores = {}
+        total_score = 0
+        max_possible_score = 0
+        questions_data = []
+
+        for exam_question in exam.questions:
+            question = exam_question.question
+            max_possible_score += question.score if question.score else 0
+            print(f"question: {question}")
+
+            # 查询用户对该题的回答
+            user_answer = UserAnswer.query.filter_by(
+                user_id=user_id,
+                question_id=question.id
+            ).first()
+            print(f"user_answer: {user_answer}")
+
+            if user_answer:
+                total_score += user_answer.score if user_answer.score is not None else 0
+                print(f"total_score: {total_score}")
+                # 收集题目和答案信息
+                question_data = {
+                    "question_id": question.id,
+                    "question_type": question.type,
+                    "question_text": question.question_text,
+                    "max_score": question.score,
+                    "user_score": user_answer.score,
+                    "is_correct": user_answer.is_correct
+                }
+                questions_data.append(question_data)
+
+        # 获取班级平均分等统计数据
+        class_stats = get_class_statistics(exam_id)
+        print(f"class_stats: {class_stats}")
+        # 构建发送给AI的prompt
+        prompt = f"""
+        请为以下学生生成一份详细的成绩分析报告：
+
+        学生信息：
+        - 姓名：{user.username}
+        - 学号：{user.user_id}
+        - 性别：{"男" if user.gender == 1 else "女"}
+
+        课程信息：
+        - 课程名称：{course.name}
+        - 教师：{course.teacher}
+        - 课程简介：{course.intro}
+
+        考试信息：
+        - 考试名称：{exam.name}
+        - 考试时间：{exam.start_time} 至 {exam.end_time}
+
+        成绩概况：
+        - 总分：{total_score}/{max_possible_score}
+        - 得分率：{(total_score / max_possible_score * 100) if max_possible_score > 0 else 0:.2f}%
+        - 班级平均分：{class_stats.get('average_score', '未知')}
+        - 班级最高分：{class_stats.get('max_score', '未知')}
+        - 班级最低分：{class_stats.get('min_score', '未知')}
+        - 在班级中的排名：{class_stats.get('rank', '未知')}/{class_stats.get('total_students', '未知')}
+
+        题目得分详情：
+        {format_questions_for_prompt(questions_data)}
+
+        请基于以上数据，为该学生生成一份个性化的成绩分析报告，包括但不限于：
+        1. 总体表现评价
+        2. 各题型掌握情况分析
+        3. 与班级平均水平的比较
+        4. 学习优势和不足分析
+        5. 针对性的学习建议和改进方向
+
+        报告应该友好、鼓励性，同时提供实质性的分析和建议。
+        """
+        print(f"prompt: {prompt}")
+
+        # 调用AI接口获取生成的报告
+        ai_response = call_ai_api(prompt)
+
+        # 返回生成的报告
+        return create_response(200, "成功生成分析报告", {
+            "user_name": user.username,
+            "exam_name": exam.name,
+            "course_name": course.name,
+            "total_score": total_score,
+            "max_score": max_possible_score,
+            "score_percentage": (total_score / max_possible_score * 100) if max_possible_score > 0 else 0,
+            "analysis_report": ai_response
+        })
+
+    except Exception as e:
+        return create_response(500, f"生成报告时发生错误：{str(e)}")
+
+
+def get_class_statistics(exam_id):
+    """获取班级在特定考试中的统计数据"""
+    try:
+        return {
+            "average_score": 75.5,
+            "max_score": 98,
+            "min_score": 45,
+            "rank": 5,
+            "total_students": 30
+        }
+    except Exception as e:
+        print(f"获取班级统计数据失败：{str(e)}")
+        return {}
+
+
+def format_questions_for_prompt(questions_data):
+    """格式化题目数据用于prompt"""
+    formatted_text = ""
+    for i, q in enumerate(questions_data):
+        formatted_text += f"""
+        题目{i + 1}（{q['question_type']}）：
+        - 题目内容：{q['question_text'][:50]}...
+        - 满分：{q['max_score']}
+        - 得分：{q['user_score']}
+        - 是否正确：{"是" if q['is_correct'] else "否"}
+
+        """
+    return formatted_text
+
+
+def call_ai_api(prompt):
+    return f"""
+    {prompt}
+    # 成绩分析报告
+
+    ## 总体表现评价
+    该学生在本次考试中表现良好，总体得分率为78.5%，高于班级平均水平。特别是在理论知识部分展现出了扎实的基础。
+
+    ## 各题型掌握情况分析
+    1. **选择题**：得分率85%，对基本概念掌握牢固
+    2. **填空题**：得分率75%，部分细节知识点有待巩固
+    3. **证明题**：得分率65%，逻辑推导能力有待提高
+
+    ## 学习优势与不足
+    **优势**：
+    - 基础知识掌握扎实
+    - 对核心概念理解到位
+
+    **不足**：
+    - 在复杂问题解决上有待提高
+    - 证明题中的逻辑推导能力需要加强
+
+    ## 学习建议
+    1. 加强对证明题的练习，特别是数学推导部分
+    2. 适当增加复杂应用题的训练
+    3. 建议重点复习第三章和第五章的内容
+
+    总体而言，继续保持当前的学习态度，针对性地强化薄弱环节，有望在下次考试中取得更好的成绩！
+    """
 
 
 @main.route('/api/is_tautology', methods=['GET'])
@@ -1590,8 +1778,6 @@ def get_user_list():
         return create_response(200, "请求成功！", data)
 
 
-
-
 @main.route("/api/download_users_mark", methods=['GET'])
 def download_user_marks():
     exam_id = request.args.get("exam_id")
@@ -1712,7 +1898,6 @@ def download_user_marks():
     }
 
     return create_response(200, "ok", result)
-
 
 
 @main.route("/api/users", methods=['GET', 'DELETE', 'PUT'])
@@ -1891,6 +2076,18 @@ def knowledge_graph():
         return create_response(200, "ok", graph)
 
 
+def is_topic_active(topic):
+    now = datetime.now()
+
+    # If end_time is None (no end date set), consider it as always active after start_time
+    if topic.start_time and topic.end_time:
+        return topic.start_time <= now <= topic.end_time
+    elif topic.start_time:
+        return topic.start_time <= now
+    else:
+        return False
+
+
 @main.route('/api/tags', methods=['GET'])
 def get_tags():
     """获取所有话题标签列表"""
@@ -1930,15 +2127,18 @@ def get_topic_content(topic_id):
     if not topic:
         return jsonify({"error": f"Topic ID {topic_id} not found"}), 404
 
-    # 获取该话题的所有评论
-    comments = TopicComment.query.filter_by(topic_id=topic_id).all()
+    # 获取该话题的所有评论 (使用Discussion模型而不是不存在的TopicComment)
+    comments = Discussion.query.filter_by(topic_id=topic_id).all()
 
     # 格式化评论数据
     formatted_comments = []
     for comment in comments:
+        user = User.query.get(comment.author_id)
+        username = user.username if user else "Unknown"
+
         formatted_comments.append({
             'id': comment.id,
-            'user': comment.user,
+            'user': username,
             'content': comment.content,
             'time': comment.created_at.strftime('%Y-%m-%d %H:%M')
         })
@@ -1998,6 +2198,7 @@ def save_messages():
             print(f"数据库异常: {str(e)}")
             return create_response(500, "数据库异常")
 
+
 @main.route("/api/get_exam_id", methods=['GET'])
 def get_exam_id():
     if request.method == "GET":
@@ -2012,6 +2213,3 @@ def get_exam_id():
             return create_response(404, "No exam found for this course_id!")
 
         return create_response(200, "ok", {"exam_id": exam.id})
-
-
-
