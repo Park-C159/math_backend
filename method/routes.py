@@ -24,7 +24,8 @@ from PIL import Image
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
-    convert_to_logic_symbols, save_questions, add_test, get_questions_data, create_response
+    convert_to_logic_symbols, save_questions, add_test, get_questions_data, create_response, calculate_exam_statistics, \
+    get_class_statistics, call_ai_api
 
 # 定义一个名为 main 的蓝图
 main = Blueprint('main', __name__)
@@ -684,11 +685,12 @@ def delete_comment():
 
 @main.route("/api/generate_score_analysis", methods=['GET'])
 def generate_score_analysis():
-    """生成学生成绩分析报告的API
+    """生成学生成绩分析报告
 
     通过获取学生信息、课程信息、考试信息和成绩数据，
     将其格式化为prompt发送给AI大模型生成个性化成绩分析报告。
     """
+
     user_id = request.args.get("user_id")
     exam_id = request.args.get("exam_id")
 
@@ -712,7 +714,6 @@ def generate_score_analysis():
             return create_response(404, "未找到对应课程")
 
         # 获取用户在该考试中的答题情况
-        user_scores = {}
         total_score = 0
         max_possible_score = 0
         questions_data = []
@@ -720,18 +721,15 @@ def generate_score_analysis():
         for exam_question in exam.questions:
             question = exam_question.question
             max_possible_score += question.score if question.score else 0
-            print(f"question: {question}")
 
             # 查询用户对该题的回答
             user_answer = UserAnswer.query.filter_by(
                 user_id=user_id,
                 question_id=question.id
             ).first()
-            print(f"user_answer: {user_answer}")
 
             if user_answer:
                 total_score += user_answer.score if user_answer.score is not None else 0
-                print(f"total_score: {total_score}")
                 # 收集题目和答案信息
                 question_data = {
                     "question_id": question.id,
@@ -746,6 +744,10 @@ def generate_score_analysis():
         # 获取班级平均分等统计数据
         class_stats = get_class_statistics(exam_id)
         print(f"class_stats: {class_stats}")
+
+        # Find the user's rank
+        rank = class_stats.get('user_ranks', {}).get(int(user_id), "未知")
+
         # 构建发送给AI的prompt
         prompt = f"""
         请为以下学生生成一份详细的成绩分析报告：
@@ -770,7 +772,7 @@ def generate_score_analysis():
         - 班级平均分：{class_stats.get('average_score', '未知')}
         - 班级最高分：{class_stats.get('max_score', '未知')}
         - 班级最低分：{class_stats.get('min_score', '未知')}
-        - 在班级中的排名：{class_stats.get('rank', '未知')}/{class_stats.get('total_students', '未知')}
+        - 在班级中的排名：{rank}/{class_stats.get('total_students', '未知')}
 
         题目得分详情：
         {format_questions_for_prompt(questions_data)}
@@ -784,7 +786,6 @@ def generate_score_analysis():
 
         报告应该友好、鼓励性，同时提供实质性的分析和建议。
         """
-        print(f"prompt: {prompt}")
 
         # 调用AI接口获取生成的报告
         ai_response = call_ai_api(prompt)
@@ -803,22 +804,6 @@ def generate_score_analysis():
     except Exception as e:
         return create_response(500, f"生成报告时发生错误：{str(e)}")
 
-
-def get_class_statistics(exam_id):
-    """获取班级在特定考试中的统计数据"""
-    try:
-        return {
-            "average_score": 75.5,
-            "max_score": 98,
-            "min_score": 45,
-            "rank": 5,
-            "total_students": 30
-        }
-    except Exception as e:
-        print(f"获取班级统计数据失败：{str(e)}")
-        return {}
-
-
 def format_questions_for_prompt(questions_data):
     """格式化题目数据用于prompt"""
     formatted_text = ""
@@ -832,38 +817,6 @@ def format_questions_for_prompt(questions_data):
 
         """
     return formatted_text
-
-
-def call_ai_api(prompt):
-    return f"""
-    {prompt}
-    # 成绩分析报告
-
-    ## 总体表现评价
-    该学生在本次考试中表现良好，总体得分率为78.5%，高于班级平均水平。特别是在理论知识部分展现出了扎实的基础。
-
-    ## 各题型掌握情况分析
-    1. **选择题**：得分率85%，对基本概念掌握牢固
-    2. **填空题**：得分率75%，部分细节知识点有待巩固
-    3. **证明题**：得分率65%，逻辑推导能力有待提高
-
-    ## 学习优势与不足
-    **优势**：
-    - 基础知识掌握扎实
-    - 对核心概念理解到位
-
-    **不足**：
-    - 在复杂问题解决上有待提高
-    - 证明题中的逻辑推导能力需要加强
-
-    ## 学习建议
-    1. 加强对证明题的练习，特别是数学推导部分
-    2. 适当增加复杂应用题的训练
-    3. 建议重点复习第三章和第五章的内容
-
-    总体而言，继续保持当前的学习态度，针对性地强化薄弱环节，有望在下次考试中取得更好的成绩！
-    """
-
 
 @main.route('/api/is_tautology', methods=['GET'])
 def is_truth():
@@ -1784,121 +1737,12 @@ def download_user_marks():
     if not exam_id:
         return create_response(400, "缺少exam_id参数")
 
-    # 获取考试信息
-    exam = Exams.query.get(exam_id)
-    if not exam:
-        return create_response(404, "未找到该考试")
-
-    user_scores_map = {}
-    question_stats_map = {}
-
-    for exam_question in exam.questions:
-        question = exam_question.question
-        user_answers = UserAnswer.query.filter_by(question_id=question.id).all()
-
-        if not user_answers:
-            continue
-
-        scores = [ua.score for ua in user_answers]
-
-        # 计算统计指标
-        avg_score = statistics.mean(scores)
-        median_score = statistics.median(scores)
-        try:
-            mode_score = statistics.mode(scores)
-        except statistics.StatisticsError:
-            mode_score = "无众数"
-        stdev_score = statistics.stdev(scores) if len(scores) > 1 else 0
-        variance_score = statistics.variance(scores) if len(scores) > 1 else 0
-        range_score = max(scores) - min(scores)
-        q1, q3 = np.percentile(scores, [25, 75])
-        iqr_score = q3 - q1
-        cv_score = (stdev_score / avg_score) * 100 if avg_score != 0 else 0
-        skewness_score = skew(scores)
-        kurtosis_score = kurtosis(scores)
-
-        question_stats_map[question.id] = {
-            "question_id": question.id,
-            "question_text": question.question_text,
-            "average_score": avg_score,
-            "median_score": median_score,
-            "mode_score": mode_score,
-            "standard_deviation": stdev_score,
-            "variance": variance_score,
-            "range": range_score,
-            "q1": q1,
-            "q3": q3,
-            "iqr": iqr_score,
-            "coefficient_of_variation": cv_score,
-            "skewness": skewness_score,
-            "kurtosis": kurtosis_score
-        }
-
-        for user_answer in user_answers:
-            user_id = user_answer.user.user_id
-            user_name = user_answer.user.username
-            user_score = user_answer.score
-
-            if user_id not in user_scores_map:
-                user_scores_map[user_id] = {
-                    'user_id': user_id,
-                    'user_name': user_name,
-                    'question_score': [],
-                    'total_score': 0,
-                }
-
-            user_scores_map[user_id]['question_score'].append({
-                'question_id': question.id,
-                'question_text': question.question_text,
-                'user_score': user_score
-            })
-
-            user_scores_map[user_id]['total_score'] += user_score
-
-    # 计算总分统计信息
-    total_scores = [user["total_score"] for user in user_scores_map.values()]
-    if total_scores:
-        total_avg = statistics.mean(total_scores)
-        total_median = statistics.median(total_scores)
-        try:
-            total_mode = statistics.mode(total_scores)
-        except statistics.StatisticsError:
-            total_mode = "无众数"
-        total_stdev = statistics.stdev(total_scores) if len(total_scores) > 1 else 0
-        total_variance = statistics.variance(total_scores) if len(total_scores) > 1 else 0
-        total_range = max(total_scores) - min(total_scores)
-        q1_total, q3_total = np.percentile(total_scores, [25, 75])
-        iqr_total = q3_total - q1_total
-        cv_total = (total_stdev / total_avg) * 100 if total_avg != 0 else 0
-        total_skew = skew(total_scores)
-        total_kurtosis = kurtosis(total_scores)
-    else:
-        total_avg = total_median = total_mode = total_stdev = total_variance = total_range = None
-        q1_total = q3_total = iqr_total = cv_total = total_skew = total_kurtosis = None
-
-    total_stats = {
-        "average_total_score": total_avg,
-        "median_total_score": total_median,
-        "mode_total_score": total_mode,
-        "standard_deviation_total_score": total_stdev,
-        "variance_total_score": total_variance,
-        "range_total_score": total_range,
-        "q1_total_score": q1_total,
-        "q3_total_score": q3_total,
-        "iqr_total_score": iqr_total,
-        "coefficient_of_variation": cv_total,
-        "skewness_total_score": total_skew,
-        "kurtosis_total_score": total_kurtosis
-    }
-
-    result = {
-        "user_scores": list(user_scores_map.values()),
-        "question_statistics": list(question_stats_map.values()),
-        "total_statistics": total_stats
-    }
+    # Get comprehensive exam statistics
+    result = calculate_exam_statistics(exam_id)
+    if not result:
+        return create_response(404, "未找到该考试或没有答题数据")
 
     return create_response(200, "ok", result)
-
 
 @main.route("/api/users", methods=['GET', 'DELETE', 'PUT'])
 def users():
