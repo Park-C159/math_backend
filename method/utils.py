@@ -548,6 +548,7 @@ def calculate_exam_statistics(exam_id):
             user_id = user_answer.user.user_id
             user_name = user_answer.user.username
             user_score = user_answer.score
+            user_answer_value = user_answer.user_answer
 
             if user_id not in user_scores_map:
                 user_scores_map[user_id] = {
@@ -560,7 +561,9 @@ def calculate_exam_statistics(exam_id):
             user_scores_map[user_id]['question_score'].append({
                 'question_id': question.id,
                 'question_text': question.question_text,
-                'user_score': user_score
+                'user_score': user_score,
+                'user_answer_value': user_answer_value,
+                'question_type': question.type,
             })
 
             user_scores_map[user_id]['total_score'] += user_score
