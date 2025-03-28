@@ -24,7 +24,7 @@ from PIL import Image
 from .config import Config
 from .models import *
 from .utils import generate_truth_table, convert_to_python_operators, generate_truth_table_for_equivalence, \
-    convert_to_logic_symbols, save_questions, add_test, get_questions_data, create_response
+    convert_to_logic_symbols, save_questions, add_test, get_questions_data, create_response, calculate_exam_statistics
 
 # 定义一个名为 main 的蓝图
 main = Blueprint('main', __name__)
