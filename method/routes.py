@@ -743,7 +743,6 @@ def generate_score_analysis():
 
         # 获取班级平均分等统计数据
         class_stats = get_class_statistics(exam_id)
-        print(f"class_stats: {class_stats}")
 
         # Find the user's rank
         rank = class_stats.get('user_ranks', {}).get(int(user_id), "未知")
@@ -752,29 +751,29 @@ def generate_score_analysis():
         prompt = f"""
         请为以下学生生成一份详细的成绩分析报告：
 
-        学生信息：
-        - 姓名：{user.username}
-        - 学号：{user.user_id}
-        - 性别：{"男" if user.gender == 1 else "女"}
+        ## 学生信息：
+        - **姓名**：{user.username}
+        - **学号**：{user.user_id}
+        - **性别**：{"男" if user.gender == 1 else "女"}
 
-        课程信息：
-        - 课程名称：{course.name}
-        - 教师：{course.teacher}
-        - 课程简介：{course.intro}
+        ## 课程信息：
+        - **课程名称**：{course.name}
+        - **教师**：{course.teacher}
+        - **课程简介**：{course.intro}
 
-        考试信息：
-        - 考试名称：{exam.name}
-        - 考试时间：{exam.start_time} 至 {exam.end_time}
+        ## 考试信息：
+        - **考试名称**：{exam.name}
+        - **考试时间**：{exam.start_time} 至 {exam.end_time}
 
-        成绩概况：
-        - 总分：{total_score}/{max_possible_score}
-        - 得分率：{(total_score / max_possible_score * 100) if max_possible_score > 0 else 0:.2f}%
-        - 班级平均分：{class_stats.get('average_score', '未知')}
-        - 班级最高分：{class_stats.get('max_score', '未知')}
-        - 班级最低分：{class_stats.get('min_score', '未知')}
-        - 在班级中的排名：{rank}/{class_stats.get('total_students', '未知')}
+        ## 成绩概况：
+        - **总分**：{total_score}/{max_possible_score}
+        - **得分率**：{(total_score / max_possible_score * 100) if max_possible_score > 0 else 0:.2f}%
+        - **班级平均分**：{class_stats.get('average_score', '未知')}
+        - **班级最高分**：{class_stats.get('max_score', '未知')}
+        - **班级最低分**：{class_stats.get('min_score', '未知')}
+        - **在班级中的排名**：{rank}/{class_stats.get('total_students', '未知')}
 
-        题目得分详情：
+        ## 题目得分详情：
         {format_questions_for_prompt(questions_data)}
 
         请基于以上数据，为该学生生成一份个性化的成绩分析报告，包括但不限于：
@@ -804,19 +803,21 @@ def generate_score_analysis():
     except Exception as e:
         return create_response(500, f"生成报告时发生错误：{str(e)}")
 
+
 def format_questions_for_prompt(questions_data):
     """格式化题目数据用于prompt"""
     formatted_text = ""
     for i, q in enumerate(questions_data):
         formatted_text += f"""
-        题目{i + 1}（{q['question_type']}）：
-        - 题目内容：{q['question_text'][:50]}...
-        - 满分：{q['max_score']}
-        - 得分：{q['user_score']}
-        - 是否正确：{"是" if q['is_correct'] else "否"}
+        ### 题目{i + 1}（{q['question_type']}）：
+        - **题目内容**：{q['question_text']}
+        - **满分**：{q['max_score']}
+        - **得分**：{q['user_score']}
+        - **是否正确**：{"是" if q['is_correct'] else "否"}
 
         """
     return formatted_text
+
 
 @main.route('/api/is_tautology', methods=['GET'])
 def is_truth():
@@ -1744,6 +1745,7 @@ def download_user_marks():
 
     return create_response(200, "ok", result)
 
+
 @main.route("/api/users", methods=['GET', 'DELETE', 'PUT'])
 def users():
     if request.method == "GET":
@@ -1961,6 +1963,138 @@ def get_tags():
     } for topic in topics]
 
     return jsonify(tags)
+
+
+@main.route('/api/tags/create', methods=['GET'])
+def create_topic():
+    """创建新的话题标签"""
+    try:
+        data = request.args
+
+        if not data:
+            print("请求数据为空")
+            return jsonify({"error": "请求数据为空"}), 400
+
+        course_name = data.get('course_name')
+        tag = data.get('tag')
+        content = data.get('content')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        user_id = data.get('user_id')
+        pdf_url = data.get('pdf_url', '')  # 添加pdf_url参数，默认为空字符串
+
+        if not all([course_name, tag, content, user_id]):
+            return jsonify({"error": "缺少必要参数"}), 400
+
+        course = Course.query.filter_by(name=course_name).first()
+        if not course:
+            print(f"未找到课程: {course_name}")
+            return jsonify({"error": f"Course with name '{course_name}' not found"}), 404
+
+        try:
+            # 转换日期字符串为datetime对象
+            start_time_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S') if start_time else None
+            end_time_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S') if end_time else None
+
+            new_topic = Topic(
+                tag=tag,
+                content=content,
+                pdf_url=pdf_url,  # 设置pdf_url
+                course_id=course.id,
+                user_id=user_id,
+                start_time=start_time_dt,
+                end_time=end_time_dt
+            )
+            db.session.add(new_topic)
+            db.session.commit()
+
+            return jsonify({
+                'id': new_topic.id,
+                'tag': new_topic.tag,
+                'content': new_topic.content,
+                'pdf_url': new_topic.pdf_url,
+                'start_time': new_topic.start_time.strftime('%Y-%m-%d %H:%M:%S') if new_topic.start_time else None,
+                'end_time': new_topic.end_time.strftime('%Y-%m-%d %H:%M:%S') if new_topic.end_time else None
+            }), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@main.route('/api/tags/update', methods=['GET'])
+def update_topic():
+    """更新话题标签"""
+    try:
+        data = request.args
+
+        if not data:
+            print("请求数据为空")
+            return jsonify({"error": "请求数据为空"}), 400
+
+        topic_id = data.get('topic_id')
+        tag = data.get('tag')
+        content = data.get('content')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        pdf_url = data.get('pdf_url')  # 获取pdf_url参数
+
+        if not all([topic_id, tag, content]):
+            return jsonify({"error": "缺少必要参数"}), 400
+
+        topic = Topic.query.get(topic_id)
+        if not topic:
+            print(f"未找到话题: {topic_id}")
+            return jsonify({"error": f"Topic with ID {topic_id} not found"}), 404
+
+        try:
+            # 转换日期字符串为datetime对象
+            start_time_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S') if start_time else None
+            end_time_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S') if end_time else None
+
+            # 更新话题
+            topic.tag = tag
+            topic.content = content
+            topic.start_time = start_time_dt
+            topic.end_time = end_time_dt
+
+            # 明确更新pdf_url字段
+            topic.pdf_url = pdf_url if pdf_url else None
+            db.session.commit()
+            # 提交后再次从数据库获取话题对象并打印，确认更新成功
+        except Exception as e:
+            print(e)
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        print(e)
+        return jsonify({"error": str(e)}), 500
+
+
+@main.route('/api/tags/delete', methods=['GET'])
+def delete_topic():
+    """删除话题标签"""
+    try:
+        topic_id = request.args.get('topic_id')
+        if not topic_id:
+            return jsonify({"error": "缺少话题ID"}), 400
+
+        topic = Topic.query.get(topic_id)
+        if not topic:
+            return jsonify({"error": f"Topic with ID {topic_id} not found"}), 404
+
+        # 删除相关的讨论
+        discussions_count = Discussion.query.filter_by(topic_id=topic_id).count()
+        Discussion.query.filter_by(topic_id=topic_id).delete()
+
+        # 删除话题
+        db.session.delete(topic)
+        db.session.commit()
+        return jsonify({"message": "删除成功"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 
 @main.route('/api/topics/<int:topic_id>', methods=['GET'])
